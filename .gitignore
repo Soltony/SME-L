@@ -1,0 +1,27 @@
+node_modules
+.next
+dist
+out
+build
+coverage
+
+.env
+.env.local
+.env.*.local
+
+*.log
+npm-debug.log*
+logs
+
+.DS_Store
+Thumbs.db
+
+tsconfig.tsbuildinfo
+next-env.d.ts
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Borrower documents are stored outside the web root; never commit them.
+/storage/*
+!/storage/.gitkeep

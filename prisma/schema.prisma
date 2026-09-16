@@ -1,0 +1,689 @@
+// SME Lending — Prisma schema (SQL Server)
+//
+// Conventions that the rest of the code relies on:
+//
+//  * Money is Decimal(18,2). Nothing financial is stored as Float: binary
+//    floating point cannot represent 0.10, and a ledger built on it drifts.
+//    The domain layer converts to integer minor units (santim) and back.
+//  * Business dates (disbursement, due dates, accrual boundaries) are @db.Date.
+//    They carry no time and no timezone, so "which day did this happen" can
+//    never shift with the server clock.
+//  * SQL Server has no Prisma enums; status columns are strings and the allowed
+//    values live in src/lib/types.ts.
+//  * SQL Server treats NULLs as equal inside a UNIQUE index, so no nullable
+//    column is declared @unique here.
+//  * Financial rows are never deleted. Relations use NoAction so a delete that
+//    would orphan a ledger line fails instead of cascading.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------
+// STAFF, ROLES, SESSIONS
+// --------------------------------------
+
+model User {
+  id                     String    @id @default(cuid())
+  fullName               String
+  email                  String    @unique
+  phoneNumber            String    @unique
+  password               String
+  passwordChangeRequired Boolean   @default(true)
+  status                 String    @default("ACTIVE") // ACTIVE | SUSPENDED | DISABLED
+  roleId                 String
+  role                   Role      @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// When set, the account only ever sees this provider's data.
+  providerId             String?
+  provider               LoanProvider? @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lastLoginAt            DateTime?
+  failedLoginCount       Int       @default(0)
+  lockedUntil            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  sessions       Session[]
+  createdChanges PendingChange[] @relation("ChangeCreatedBy")
+  decidedChanges PendingChange[] @relation("ChangeDecidedBy")
+
+  @@index([roleId])
+  @@index([providerId])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions String   @db.NVarChar(Max) // JSON: { "<module>": { read, create, update, delete, approve } }
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  jti          String?
+  revoked      Boolean  @default(false)
+  expiresAt    DateTime
+  lastActivity DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?  @db.NVarChar(1000)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([jti])
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorId       String
+  actorName     String?
+  actorType     String   @default("ADMIN") // ADMIN | BORROWER | SYSTEM | EXTERNAL
+  action        String
+  entity        String?
+  entityId      String?
+  details       String?  @db.NVarChar(Max)
+  ipAddress     String?
+  userAgent     String?  @db.NVarChar(1000)
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String   @db.NVarChar(Max)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+// --------------------------------------
+// MAKER-CHECKER
+// --------------------------------------
+
+model PendingChange {
+  id            String    @id @default(cuid())
+  entityType    String
+  entityId      String?
+  action        String
+  payload       String    @db.NVarChar(Max)
+  previousData  String?   @db.NVarChar(Max)
+  changedFields String?   @db.NVarChar(Max)
+  summary       String?   @db.NVarChar(1000)
+  /// Provider the change belongs to, so a provider-scoped checker only sees its own queue.
+  providerId    String?
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED | FAILED
+  createdById   String
+  createdBy     User      @relation("ChangeCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  decidedById   String?
+  decidedBy     User?     @relation("ChangeDecidedBy", fields: [decidedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  decidedAt     DateTime?
+  comment       String?   @db.NVarChar(2000)
+  failureReason String?   @db.NVarChar(2000)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@index([entityType, entityId])
+  @@index([createdById])
+  @@index([decidedById])
+}
+
+// --------------------------------------
+// PROVIDERS, PRODUCTS, TAX
+// --------------------------------------
+
+model LoanProvider {
+  id                  String   @id @default(cuid())
+  /// Identifier sent to core banking on disbursement (e.g. PRO0001).
+  code                String   @unique
+  name                String   @unique
+  colorHex            String   @default("#E0A70B")
+  displayOrder        Int      @default(0)
+  status              String   @default("ACTIVE") // ACTIVE | INACTIVE
+  fundingAccountNo    String?
+  nplThresholdDays    Int      @default(90)
+  /// Principal of loans created but not yet confirmed by core banking.
+  reservedFunds       Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  users             User[]
+  products          LoanProduct[]
+  accounts          LedgerAccount[]
+  journals          JournalEntry[]
+  loans             Loan[]
+  applications      LoanApplication[]
+  scoringParameters ScoringParameter[]
+  dataConfigs       DataProvisioningConfig[]
+  terms             TermsVersion[]
+}
+
+model LoanProduct {
+  id                String   @id @default(cuid())
+  providerId        String
+  provider          LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  code              String
+  name              String
+  description       String   @db.NVarChar(2000)
+  status            String   @default("DRAFT") // DRAFT | ACTIVE | INACTIVE
+  minAmount         Decimal  @db.Decimal(18, 2)
+  maxAmount         Decimal  @db.Decimal(18, 2)
+  durationDays      Int
+  installmentCount  Int      @default(1)
+
+  serviceFeeType    String   @default("NONE") // NONE | FIXED | PERCENT
+  serviceFeeValue   Decimal  @default(0) @db.Decimal(18, 6)
+  interestType      String   @default("NONE") // NONE | FIXED_DAILY | PERCENT_DAILY
+  interestValue     Decimal  @default(0) @db.Decimal(18, 6)
+  interestBasis     String   @default("SIMPLE") // SIMPLE | COMPOUND
+  accrueInterestAfterMaturity Boolean @default(false)
+  /// JSON array of PenaltyRule.
+  penaltyRules      String   @default("[]") @db.NVarChar(Max)
+
+  allowConcurrentLoans Boolean @default(false)
+  /// Applications wait for a reviewer instead of disbursing straight away.
+  requiresReview    Boolean  @default(false)
+  /// JSON array of { key, name, description }.
+  requiredDocuments String   @default("[]") @db.NVarChar(Max)
+  /// When false the tier table is ignored and the product max applies.
+  requiresScoring   Boolean  @default(true)
+  /// JSON object { field: "a,b,c" } matched against provisioned data.
+  eligibilityFilter String?  @db.NVarChar(Max)
+  /// JSON LoanCycleConfig.
+  cycleConfig       String?  @db.NVarChar(Max)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tiers        LoanAmountTier[]
+  loans        Loan[]
+  applications LoanApplication[]
+
+  @@unique([providerId, code])
+  @@unique([providerId, name])
+}
+
+model LoanAmountTier {
+  id        String      @id @default(cuid())
+  productId String
+  product   LoanProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  minScore  Int
+  maxScore  Int
+  maxAmount Decimal     @db.Decimal(18, 2)
+
+  @@index([productId])
+}
+
+model TaxRule {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  ratePercent       Decimal  @db.Decimal(9, 6)
+  appliesToFee      Boolean  @default(false)
+  appliesToInterest Boolean  @default(false)
+  appliesToPenalty  Boolean  @default(false)
+  status            String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model TermsVersion {
+  id          String       @id @default(cuid())
+  providerId  String
+  provider    LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  version     Int
+  content     String       @db.NVarChar(Max)
+  isActive    Boolean      @default(false)
+  publishedAt DateTime     @default(now())
+  acceptances TermsAcceptance[]
+
+  @@unique([providerId, version])
+}
+
+model TermsAcceptance {
+  id         String       @id @default(cuid())
+  borrowerId String
+  borrower   Borrower     @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  termsId    String
+  terms      TermsVersion @relation(fields: [termsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  acceptedAt DateTime     @default(now())
+
+  @@unique([borrowerId, termsId])
+}
+
+// --------------------------------------
+// CREDIT SCORING & DATA PROVISIONING
+// --------------------------------------
+
+model ScoringParameter {
+  id         String        @id @default(cuid())
+  providerId String
+  provider   LoanProvider  @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name       String
+  /// The most points this parameter can contribute.
+  weight     Int
+  sortOrder  Int           @default(0)
+  rules      ScoringRule[]
+
+  @@index([providerId])
+}
+
+model ScoringRule {
+  id          String           @id @default(cuid())
+  parameterId String
+  parameter   ScoringParameter @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+  field       String
+  operator    String // > < >= <= == != between in
+  value       String
+  score       Int
+}
+
+model DataProvisioningConfig {
+  id         String       @id @default(cuid())
+  providerId String
+  provider   LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name       String
+  /// JSON array of { name, type: string|number|date, isIdentifier }.
+  columns    String       @db.NVarChar(Max)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  uploads    DataUpload[]
+  rows       BorrowerDataRow[]
+
+  @@unique([providerId, name])
+}
+
+model DataUpload {
+  id           String                 @id @default(cuid())
+  configId     String
+  config       DataProvisioningConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fileName     String
+  totalRows    Int
+  acceptedRows Int
+  rejectedRows Int
+  rejections   String?                @db.NVarChar(Max)
+  uploadedById String
+  uploadedBy   String?
+  createdAt    DateTime               @default(now())
+  rows         BorrowerDataRow[]
+
+  @@index([configId])
+}
+
+model BorrowerDataRow {
+  id         String                 @id @default(cuid())
+  configId   String
+  config     DataProvisioningConfig @relation(fields: [configId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  uploadId   String
+  upload     DataUpload             @relation(fields: [uploadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// Normalized 251XXXXXXXXX phone number.
+  borrowerKey String
+  data       String                 @db.NVarChar(Max)
+  updatedAt  DateTime               @updatedAt
+
+  @@unique([configId, borrowerKey])
+  @@index([borrowerKey])
+  @@index([uploadId])
+}
+
+// --------------------------------------
+// BORROWERS
+// --------------------------------------
+
+model Borrower {
+  id          String    @id @default(cuid())
+  phoneNumber String    @unique
+  fullName    String?
+  status      String    @default("ACTIVE") // ACTIVE | BLOCKED
+  isNpl       Boolean   @default(false)
+  nplSince    DateTime?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  accounts     BorrowerAccount[]
+  applications LoanApplication[]
+  loans        Loan[]
+  intents      PaymentIntent[]
+  acceptances  TermsAcceptance[]
+
+  @@index([status])
+  @@index([isNpl])
+}
+
+/// Accounts core banking confirmed belong to the borrower. A loan can only be
+/// paid out to one of these, never to a number typed into the browser.
+model BorrowerAccount {
+  id            String   @id @default(cuid())
+  borrowerId    String
+  borrower      Borrower @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  accountNumber String
+  accountName   String?
+  source        String   @default("CBS") // CBS | SIMULATED
+  verifiedAt    DateTime @default(now())
+
+  @@unique([borrowerId, accountNumber])
+}
+
+// --------------------------------------
+// APPLICATIONS & LOANS
+// --------------------------------------
+
+model LoanApplication {
+  id                  String       @id @default(cuid())
+  applicationNo       String       @unique
+  borrowerId          String
+  borrower            Borrower     @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  providerId          String
+  provider            LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productId           String
+  product             LoanProduct  @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requestedAmount     Decimal      @db.Decimal(18, 2)
+  approvedAmount      Decimal?     @db.Decimal(18, 2)
+  /// Eligibility at the moment of applying, kept for the reviewer.
+  score               Int?
+  eligibleAmount      Decimal?     @db.Decimal(18, 2)
+  disbursementAccount String
+  status              String       @default("SUBMITTED") // SUBMITTED | APPROVED | REJECTED | CANCELLED | DISBURSED
+  reviewNote          String?      @db.NVarChar(2000)
+  reviewedById        String?
+  reviewedByName      String?
+  reviewedAt          DateTime?
+  loanId              String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  documents ApplicationDocument[]
+  loans     Loan[]
+
+  @@index([borrowerId, status])
+  @@index([providerId, status])
+  @@index([productId])
+}
+
+model ApplicationDocument {
+  id            String          @id @default(cuid())
+  applicationId String
+  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  documentKey   String
+  fileName      String
+  mimeType      String
+  sizeBytes     Int
+  sha256        String
+  /// Generated name inside the private storage directory; never a client path.
+  storageName   String          @unique
+  uploadedAt    DateTime        @default(now())
+
+  @@unique([applicationId, documentKey])
+}
+
+model Loan {
+  id                  String       @id @default(cuid())
+  loanNumber          String       @unique
+  applicationId       String
+  application         LoanApplication @relation(fields: [applicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  borrowerId          String
+  borrower            Borrower     @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  providerId          String
+  provider            LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productId           String
+  product             LoanProduct  @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// PENDING_DISBURSEMENT | ACTIVE | PAID_OFF | WRITTEN_OFF | DISBURSEMENT_FAILED
+  status              String
+  principalAmount     Decimal      @db.Decimal(18, 2)
+  /// Immutable pricing snapshot (LoanTerms JSON). Editing the product never
+  /// changes a loan that already exists.
+  terms               String       @db.NVarChar(Max)
+  disbursementAccount String
+  disbursementDate    DateTime?    @db.Date
+  maturityDate        DateTime?    @db.Date
+  /// Exclusive: every business day before this one has been accrued.
+  accruedThrough      DateTime?    @db.Date
+
+  principalOutstanding Decimal     @default(0) @db.Decimal(18, 2)
+  interestOutstanding  Decimal     @default(0) @db.Decimal(18, 2)
+  feeOutstanding       Decimal     @default(0) @db.Decimal(18, 2)
+  penaltyOutstanding   Decimal     @default(0) @db.Decimal(18, 2)
+  taxOutstanding       Decimal     @default(0) @db.Decimal(18, 2)
+  /// Money received beyond what was owed. A liability until refunded.
+  creditBalance        Decimal     @default(0) @db.Decimal(18, 2)
+
+  interestAccrued      Decimal     @default(0) @db.Decimal(18, 2)
+  feeCharged           Decimal     @default(0) @db.Decimal(18, 2)
+  penaltyAccrued       Decimal     @default(0) @db.Decimal(18, 2)
+  taxAccrued           Decimal     @default(0) @db.Decimal(18, 2)
+
+  principalPaid        Decimal     @default(0) @db.Decimal(18, 2)
+  interestPaid         Decimal     @default(0) @db.Decimal(18, 2)
+  feePaid              Decimal     @default(0) @db.Decimal(18, 2)
+  penaltyPaid          Decimal     @default(0) @db.Decimal(18, 2)
+  taxPaid              Decimal     @default(0) @db.Decimal(18, 2)
+  writtenOff           Decimal     @default(0) @db.Decimal(18, 2)
+
+  overduePrincipal     Decimal     @default(0) @db.Decimal(18, 2)
+  daysPastDue          Int         @default(0)
+  maxDaysPastDue       Int         @default(0)
+  score                Int?
+  repaymentBehavior    String? // EARLY | ON_TIME | LATE
+  closedAt             DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  installments  LoanInstallment[]
+  disbursements DisbursementAttempt[]
+  repayments    Repayment[]
+  intents       PaymentIntent[]
+  journals      JournalEntry[]
+
+  @@index([borrowerId, status])
+  @@index([providerId, status])
+  @@index([productId])
+  @@index([status, accruedThrough])
+  @@index([applicationId])
+}
+
+model LoanInstallment {
+  id             String    @id @default(cuid())
+  loanId         String
+  loan           Loan      @relation(fields: [loanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  number         Int
+  dueDate        DateTime  @db.Date
+  principalDue   Decimal   @db.Decimal(18, 2)
+  principalPaid  Decimal   @default(0) @db.Decimal(18, 2)
+  penaltyAccrued Decimal   @default(0) @db.Decimal(18, 2)
+  penaltyPaid    Decimal   @default(0) @db.Decimal(18, 2)
+  settledAt      DateTime?
+
+  @@unique([loanId, number])
+  @@index([dueDate])
+}
+
+model DisbursementAttempt {
+  id            String    @id @default(cuid())
+  loanId        String
+  loan          Loan      @relation(fields: [loanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attemptNo     Int
+  /// PENDING | SENT | SUCCEEDED | FAILED | UNKNOWN
+  status        String    @default("PENDING")
+  /// Idempotency key sent to core banking, so a retried call cannot pay twice.
+  requestId     String    @unique
+  creditAccount String
+  amount        Decimal   @db.Decimal(18, 2)
+  providerCode  String
+  cbsReference  String?
+  httpStatus    Int?
+  responseBody  String?   @db.NVarChar(4000)
+  errorMessage  String?   @db.NVarChar(1000)
+  resolvedById  String?
+  resolutionNote String?  @db.NVarChar(1000)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+
+  @@unique([loanId, attemptNo])
+  @@index([status])
+}
+
+model PaymentIntent {
+  id              String    @id @default(cuid())
+  transactionId   String    @unique
+  loanId          String
+  loan            Loan      @relation(fields: [loanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  borrowerId      String
+  borrower        Borrower  @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  amount          Decimal   @db.Decimal(18, 2)
+  channel         String    @default("SUPERAPP") // SUPERAPP | TEST
+  /// PENDING | COMPLETED | FAILED | EXPIRED
+  status          String    @default("PENDING")
+  transactionTime String
+  gatewayReference String?
+  failureReason   String?   @db.NVarChar(1000)
+  callbackPayload String?   @db.NVarChar(Max)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+
+  repayments Repayment[]
+
+  @@index([loanId, status])
+  @@index([status, createdAt])
+}
+
+model Repayment {
+  id                String        @id @default(cuid())
+  receiptNo         String        @unique
+  loanId            String
+  loan              Loan          @relation(fields: [loanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  amount            Decimal       @db.Decimal(18, 2)
+  valueDate         DateTime      @db.Date
+  receivedAt        DateTime      @default(now())
+  channel           String // SUPERAPP | MANUAL | TEST
+  paymentIntentId   String?
+  paymentIntent     PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  externalReference String?
+  principalPortion  Decimal       @default(0) @db.Decimal(18, 2)
+  interestPortion   Decimal       @default(0) @db.Decimal(18, 2)
+  feePortion        Decimal       @default(0) @db.Decimal(18, 2)
+  penaltyPortion    Decimal       @default(0) @db.Decimal(18, 2)
+  taxPortion        Decimal       @default(0) @db.Decimal(18, 2)
+  excessPortion     Decimal       @default(0) @db.Decimal(18, 2)
+  /// JSON: per-installment { number, principal, penalty }.
+  allocation        String        @db.NVarChar(Max)
+  journalId         String        @unique
+  journal           JournalEntry  @relation("RepaymentJournal", fields: [journalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  status            String        @default("POSTED") // POSTED | REVERSED
+  reversedAt        DateTime?
+  reversalJournalId String?
+  reversalReason    String?       @db.NVarChar(1000)
+  createdById       String?
+  createdAt         DateTime      @default(now())
+
+  @@index([loanId])
+  @@index([valueDate])
+  @@index([paymentIntentId])
+}
+
+// --------------------------------------
+// ACCOUNTING — double-entry general ledger, one book per provider
+// --------------------------------------
+
+model LedgerAccount {
+  id         String       @id @default(cuid())
+  providerId String
+  provider   LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  code       String
+  name       String
+  type       String // ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+  /// Stable handle the posting code uses (CASH, LOANS_RECEIVABLE, ...).
+  systemKey  String
+  /// Cached balance in the account's normal direction. Always equal to the
+  /// sum of its lines; `verifyLedger` checks exactly that.
+  balance    Decimal      @default(0) @db.Decimal(18, 2)
+  isActive   Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  lines      LedgerLine[]
+
+  @@unique([providerId, code])
+  @@unique([providerId, systemKey])
+}
+
+model JournalEntry {
+  id             String         @id @default(cuid())
+  journalNo      String         @unique
+  providerId     String
+  provider       LoanProvider   @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loanId         String?
+  loan           Loan?          @relation(fields: [loanId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessDate   DateTime       @db.Date
+  /// CAPITAL | DISBURSEMENT | ACCRUAL | REPAYMENT | REVERSAL | WRITE_OFF | REFUND | ADJUSTMENT
+  type           String
+  description    String         @db.NVarChar(500)
+  /// Posting the same business event twice is refused by this key.
+  idempotencyKey String         @unique
+  totalAmount    Decimal        @db.Decimal(18, 2)
+  reversalOfId   String?
+  reversalOf     JournalEntry?  @relation("JournalReversal", fields: [reversalOfId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversals      JournalEntry[] @relation("JournalReversal")
+  createdById    String
+  createdAt      DateTime       @default(now())
+
+  lines     LedgerLine[]
+  repayment Repayment?     @relation("RepaymentJournal")
+
+  @@index([providerId, businessDate])
+  @@index([loanId])
+  @@index([type, businessDate])
+  @@index([reversalOfId])
+}
+
+model LedgerLine {
+  id           String        @id @default(cuid())
+  journalId    String
+  journal      JournalEntry  @relation(fields: [journalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  accountId    String
+  account      LedgerAccount @relation(fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  debit        Decimal       @default(0) @db.Decimal(18, 2)
+  credit       Decimal       @default(0) @db.Decimal(18, 2)
+  /// Denormalized from the journal so statements and trial balances need no join.
+  businessDate DateTime      @db.Date
+  loanId       String?
+  memo         String?       @db.NVarChar(200)
+
+  @@index([accountId, businessDate])
+  @@index([journalId])
+  @@index([loanId])
+}
+
+// --------------------------------------
+// NOTIFICATIONS
+// --------------------------------------
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  recipient String
+  template  String
+  /// Rendered text with any secret values masked.
+  body      String   @db.NVarChar(2000)
+  status    String // SENT | FAILED | SKIPPED
+  error     String?  @db.NVarChar(1000)
+  entity    String?
+  entityId  String?
+  createdAt DateTime @default(now())
+
+  @@index([recipient])
+  @@index([createdAt])
+}
