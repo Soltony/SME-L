@@ -53,6 +53,7 @@ and disburse without a bank. Every variable is documented in [.env.example](.env
 | `npm run db:push` / `db:seed` / `db:seed:demo` | Schema, first admin, demo data |
 | `npm run run:worker` | Maintenance loop; `-- --once` for a single pass |
 | `npm run ledger:verify` | Reconcile the books; exits non-zero if anything is off |
+| `npm run db:backfill-phones` | Record each borrower's current number in their phone history (safe to re-run) |
 
 ### Daily maintenance
 
@@ -105,6 +106,18 @@ one caught up after an outage land on identical balances.
 
 **Loans carry their terms.** Every loan stores an immutable snapshot of its pricing. Editing a
 product changes what new borrowers get and never reprices a loan already on the books.
+
+**A borrower is not their phone number.** The super app identifies borrowers by phone, but people
+change SIM cards, and a loan does not end because a number did. Loans, applications and repayments
+hang off the immutable `Borrower.id`, and every number a borrower has used is kept in
+`BorrowerPhone`, so a change of number moves nothing: their live loan stays visible and payable, and
+their repayment history still counts. A returning borrower on a new number is recognised either
+because core banking confirms the new number holds an account already verified for exactly one
+borrower, or because staff approved a phone change. The automatic match is deliberately narrow — one
+borrower only, bank-confirmed accounts only, audited every time — because an account can have more
+than one holder; `lending.linkPhoneByVerifiedAccount` turns it off for operators who would rather
+link only through approval. If a second record was created before the link, it is folded into the
+first, keeping any restriction from either.
 
 **Money moves in a fixed order.** A payment settles penalties, then service fee, interest, tax and
 principal, oldest installment first. Anything left over becomes a credit the borrower can be

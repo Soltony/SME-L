@@ -69,6 +69,16 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     sensitive: true,
   },
   {
+    key: 'lending.linkPhoneByVerifiedAccount',
+    label: 'Recognise a borrower who changed phone number',
+    description:
+      'When a number we do not know signs in, ask core banking which accounts it holds and match it to the borrower who already holds one of them, so their existing loan stays visible and payable. Only ever matches a single borrower on a bank-confirmed account, and writes every link to the audit log. Turn off to link phone numbers only through an approved phone change.',
+    category: 'lending',
+    type: 'boolean',
+    default: true,
+    sensitive: true,
+  },
+  {
     key: 'lending.refuseAfterWriteOff',
     label: 'Refuse borrowers with a written-off loan',
     description:

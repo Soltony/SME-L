@@ -4,6 +4,7 @@ import type { TxClient } from '@/lib/db-lock';
 import { toCents, type Cents } from '@/lib/money';
 import { getSettings } from '@/lib/settings';
 import { OPEN_LOAN_STATUSES } from '@/lib/types';
+import { borrowerPhoneNumbers } from './borrower-identity';
 import {
   cyclePercent,
   normalizeFieldName,
@@ -35,9 +36,12 @@ export async function getBorrowerFeatures(
   borrower: { id: string; phoneNumber: string },
   providerId: string
 ): Promise<BorrowerFeatures> {
+  // Data rows are keyed by phone number, so match every number this borrower
+  // has used: a provider's upload against their old number is still about them.
+  const keys = await borrowerPhoneNumbers(client, borrower);
   const [rows, loans] = await Promise.all([
     client.borrowerDataRow.findMany({
-      where: { borrowerKey: borrower.phoneNumber, config: { providerId } },
+      where: { borrowerKey: { in: keys }, config: { providerId } },
       orderBy: { updatedAt: 'asc' },
       select: { data: true },
     }),

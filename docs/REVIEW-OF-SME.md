@@ -218,6 +218,31 @@ gaps or overlaps cannot be saved. A borrower with a written-off loan is refused 
 overdue flag alone clears once a loan leaves the active book, which would otherwise let a defaulter
 borrow again the day after the write-off.
 
+## 15b. A borrower who changed phone number became a stranger
+
+**Found.** In the old app the phone number *was* the primary key: `Borrower.id` and `Loan.borrowerId`
+both held it. A borrower who changed SIM therefore arrived as a new person — a second borrower
+record, their live loan invisible on it, and an overdue flag left behind on the old record
+restricting nobody. The mitigation there could not repair it either: it rewrote `borrowerId` across
+eight tables and refused to run at all while an unpaid loan existed, which is precisely when a phone
+change matters.
+
+**Consequence.** Loans stranded on a number the borrower no longer uses — unreachable and unpayable —
+duplicate borrower records for one person, and a restriction that a new SIM card clears.
+
+**Now.** The phone number is an attribute, never the key. Loans, applications, repayments and intents
+all hang off the immutable `Borrower.id`, so a change of number moves nothing: the record simply
+takes the new number and keeps the old one in `BorrowerPhone`, whose unique constraint makes it
+impossible for one number to resolve to two borrowers. Sign-in resolves through that history, so an
+approved change is invisible to the borrower except that it works. A returning borrower is
+recognised automatically when core banking confirms their new number holds an account already
+verified for exactly one borrower — narrow on purpose, since an account can have more than one
+holder, and audited every time. Everything else goes through a maker-checker phone change. Where a
+second record was already created, it is folded into the first in one transaction, carrying any
+restriction from either, and kept (marked MERGED) rather than deleted so receipts that name it still
+resolve. Uploaded scoring data, which is keyed by phone number rather than by borrower, is matched
+against every number the borrower has used, so a change of SIM does not silently drop their score.
+
 ## 16. Dashboards that got slower as the book grew
 
 **Found.** `lib/loan-calculator.ts` recomputed a loan from scratch on every read — looping day by day

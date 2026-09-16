@@ -59,6 +59,20 @@ export default async function BorrowerDetailPage({ params }: { params: Promise<{
           <>
             <StatusBadge status={borrower.status} />
             {borrower.isNpl && <StatusBadge status="NPL" />}
+            {canBlock && (
+              <ActionDialog
+                label="Change phone"
+                title="Change phone number"
+                description="For a borrower whose new number cannot be recognised automatically — a new bank account, or an account held by more than one person. Their loans and repayment history stay exactly as they are; only the number they sign in with changes. Takes effect once approved."
+                endpoint={`/api/admin/borrowers/${borrower.id}`}
+                method="POST"
+                submitLabel="Request change"
+                fields={[
+                  { name: 'newPhoneNumber', label: 'New phone number', placeholder: '0911223344', required: true },
+                  { name: 'reason', label: 'Reason', type: 'textarea', required: true },
+                ]}
+              />
+            )}
             {canBlock &&
               (borrower.status === 'ACTIVE' ? (
                 <ActionDialog

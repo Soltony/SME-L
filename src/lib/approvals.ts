@@ -19,6 +19,8 @@ import {
   type Actor,
 } from './lending/loan-service';
 import { resolveDisbursementInTx } from './lending/disbursement';
+import { linkPhoneToBorrower } from './lending/borrower-identity';
+import { parseEthiopianMobile } from './format';
 import type { SessionUser } from './types';
 
 /**
@@ -51,6 +53,13 @@ const reference = z
   .regex(/^[\w./:-]+$/, 'References use letters, digits and . / : - _ only.');
 
 const reason = z.string().trim().min(5, 'Give a reason.').max(1000);
+
+/** Stored in the 251XXXXXXXXX form, whatever the operator typed. */
+const phoneNumber = z
+  .string()
+  .trim()
+  .transform((v) => parseEthiopianMobile(v) ?? '')
+  .refine((v) => v.length > 0, 'Enter an Ethiopian mobile number, such as 0911223344.');
 
 interface Handler<T> {
   label: string;
@@ -379,6 +388,55 @@ export const CHANGE_HANDLERS = {
         throw new ApiError(400, 'Enter the core banking reference that proves the transfer.');
       }
       await resolveDisbursementInTx(tx, id ?? '', p.resolution, { reference: p.reference, note: p.note }, actor);
+    },
+  }),
+
+  /**
+   * Moves a borrower onto a new phone number.
+   *
+   * Sign-in recognises most changed numbers on its own, through the bank
+   * account they hold. This is for the rest: the borrower changed bank account
+   * as well, the old number was recycled to somebody else, or two borrowers
+   * hold the account so the automatic match refused to guess. It needs two
+   * people because it decides whose loans somebody can see and repay.
+   *
+   * Nothing is rewritten onto a new key — the loans never moved, because they
+   * were never keyed by the phone number.
+   */
+  'Borrower.PHONE_CHANGE': handler({
+    label: 'Change borrower phone number',
+    module: 'borrowers',
+    schema: z.object({ newPhoneNumber: phoneNumber, reason }),
+    providerOf: async () => null,
+    apply: async (tx, p, id, actor) => {
+      const borrowerId = id ?? '';
+      const borrower = await tx.borrower.findUnique({
+        where: { id: borrowerId },
+        select: { phoneNumber: true },
+      });
+      if (!borrower) throw new ApiError(404, 'Borrower not found.');
+      if (borrower.phoneNumber === p.newPhoneNumber) {
+        throw new ApiError(400, 'That is already this borrower’s number.');
+      }
+
+      const { merge } = await linkPhoneToBorrower(tx, borrowerId, p.newPhoneNumber, 'APPROVAL', actor);
+
+      await createAuditLogInTx(tx, {
+        actorId: actor.id,
+        actorName: actor.name,
+        actorType: actor.type,
+        action: 'BORROWER_PHONE_CHANGED',
+        entity: 'Borrower',
+        entityId: borrowerId,
+        details: {
+          previousPhone: borrower.phoneNumber,
+          newPhone: p.newPhoneNumber,
+          reason: p.reason,
+          absorbedDuplicate: merge ? merge : null,
+        },
+      });
+
+      return p.newPhoneNumber;
     },
   }),
 };

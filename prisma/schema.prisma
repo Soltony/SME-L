@@ -344,11 +344,17 @@ model BorrowerDataRow {
 
 model Borrower {
   id          String    @id @default(cuid())
+  /// The number they sign in with today. Every number they have ever used,
+  /// including this one, is in `phones` — resolve a sign-in through that, not
+  /// through this column, or a borrower who changes SIM becomes a stranger.
   phoneNumber String    @unique
   fullName    String?
-  status      String    @default("ACTIVE") // ACTIVE | BLOCKED
+  status      String    @default("ACTIVE") // ACTIVE | BLOCKED | MERGED
   isNpl       Boolean   @default(false)
   nplSince    DateTime?
+  /// Set when this record was absorbed into another after being recognised as
+  /// the same person. The row is kept so its id stays resolvable.
+  mergedIntoId String?
   firstSeenAt DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
   createdAt   DateTime  @default(now())
@@ -359,9 +365,35 @@ model Borrower {
   loans        Loan[]
   intents      PaymentIntent[]
   acceptances  TermsAcceptance[]
+  phones       BorrowerPhone[]
 
   @@index([status])
   @@index([isNpl])
+  @@index([mergedIntoId])
+}
+
+/// Every phone number a borrower has signed in with.
+///
+/// A phone number is a way to reach a person, not the person: SIM cards get
+/// swapped and numbers get recycled. Loans, applications and repayments all
+/// hang off the immutable `Borrower.id`, so recognising a returning borrower on
+/// a new number is the whole problem — get that right and nothing has to move.
+///
+/// `phoneNumber` is unique across the table, so one number can never resolve to
+/// two borrowers and a second record for the same person cannot be created.
+model BorrowerPhone {
+  id          String   @id @default(cuid())
+  borrowerId  String
+  borrower    Borrower @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  phoneNumber String   @unique
+  isCurrent   Boolean  @default(false)
+  /// REGISTRATION (first sign-in) | ACCOUNT_MATCH (core banking says this
+  /// number holds an account we already verified) | APPROVAL (maker-checker).
+  linkedBy    String   @default("REGISTRATION")
+  linkedAt    DateTime @default(now())
+
+  @@index([borrowerId])
+  @@index([isCurrent])
 }
 
 /// Accounts core banking confirmed belong to the borrower. A loan can only be

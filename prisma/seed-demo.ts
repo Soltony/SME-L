@@ -69,6 +69,7 @@ async function reset() {
     prisma.user.updateMany({ where: { providerId: { in: providerIds } }, data: { providerId: null } }),
     prisma.loanProvider.deleteMany({ where: { id: { in: providerIds } } }),
     prisma.borrowerAccount.deleteMany({ where: { borrower: { phoneNumber: { startsWith: PHONE_PREFIX } } } }),
+    prisma.borrowerPhone.deleteMany({ where: { borrower: { phoneNumber: { startsWith: PHONE_PREFIX } } } }),
     prisma.borrower.deleteMany({ where: { phoneNumber: { startsWith: PHONE_PREFIX } } }),
     prisma.taxRule.deleteMany({ where: { name: 'VAT (demo)' } }),
   ]);
@@ -287,6 +288,9 @@ async function main() {
         accounts: {
           create: [{ accountNumber: `1000${phone.slice(-8)}`, accountName: `${name} — savings (demo)`, source: 'SIMULATED' }],
         },
+        // Sign-in resolves a borrower through their numbers, so the first one
+        // is on record from the start, exactly as registration would write it.
+        phones: { create: [{ phoneNumber: phone, isCurrent: true, linkedBy: 'REGISTRATION' }] },
       },
     });
     await prisma.borrowerDataRow.create({
