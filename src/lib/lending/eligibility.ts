@@ -6,6 +6,8 @@ import { getSettings } from '@/lib/settings';
 import { OPEN_LOAN_STATUSES } from '@/lib/types';
 import { borrowerPhoneNumbers } from './borrower-identity';
 import { isOnEligibilityList, NOT_ON_LIST_MESSAGE } from './eligibility-lists';
+import { readCoreBankingValues } from './core-banking-profile';
+import { CORE_BANKING_FIELD_KEYS } from './scoring-fields';
 import {
   loanCyclePosition,
   loanCycleUnreadable,
@@ -18,6 +20,8 @@ import {
 
 export interface BorrowerFeatures {
   values: Record<string, unknown>;
+  /** Core banking has answered for this borrower at least once. */
+  coreBanking: boolean;
   history: {
     disbursedLoans: number;
     paidOffLoans: number;
@@ -32,7 +36,8 @@ export interface BorrowerFeatures {
 
 /**
  * Everything a scoring rule may refer to: the provider's uploaded data for this
- * borrower, plus the borrower's own history on the platform.
+ * borrower, their stored core-banking figures, and their own history on the
+ * platform — later sources win a name clash, matching the field list.
  */
 export async function getBorrowerFeatures(
   client: TxClient,
@@ -42,7 +47,7 @@ export async function getBorrowerFeatures(
   // Data rows are keyed by phone number, so match every number this borrower
   // has used: a provider's upload against their old number is still about them.
   const keys = await borrowerPhoneNumbers(client, borrower);
-  const [rows, loans] = await Promise.all([
+  const [rows, loans, bank] = await Promise.all([
     client.borrowerDataRow.findMany({
       where: { borrowerKey: { in: keys }, config: { providerId } },
       orderBy: { updatedAt: 'asc' },
@@ -52,6 +57,7 @@ export async function getBorrowerFeatures(
       where: { borrowerId: borrower.id },
       select: { status: true, repaymentBehavior: true, maxDaysPastDue: true },
     }),
+    readCoreBankingValues(client, borrower.id),
   ]);
 
   const values: Record<string, unknown> = {};
@@ -63,6 +69,7 @@ export async function getBorrowerFeatures(
       // A malformed row is skipped rather than failing the whole check.
     }
   }
+  for (const [key, value] of Object.entries(bank ?? {})) values[normalizeFieldName(key)] = value;
 
   const disbursed = loans.filter((l) => ['ACTIVE', 'PAID_OFF', 'WRITTEN_OFF'].includes(l.status));
   const history = {
@@ -77,20 +84,8 @@ export async function getBorrowerFeatures(
   };
 
   for (const [key, value] of Object.entries(history)) values[normalizeFieldName(key)] = value;
-  return { values, history };
+  return { values, coreBanking: bank !== null, history };
 }
-
-/** The built-in history fields a rule can use without any uploaded data. */
-export const HISTORY_FIELDS = [
-  'disbursedLoans',
-  'paidOffLoans',
-  'onTimeLoans',
-  'earlyLoans',
-  'lateLoans',
-  'writtenOffLoans',
-  'openLoans',
-  'worstDaysPastDue',
-];
 
 export interface EligibilityResult {
   eligible: boolean;
@@ -263,6 +258,12 @@ export async function evaluateEligibility(
     });
     if (parameters.length === 0) {
       return refuse(product, 'This lender is not accepting applications yet.');
+    }
+    // Scoring without the bank's figures would quietly score those rules zero
+    // and offer a smaller loan, or none, for a reason that is not the borrower's.
+    const needsBank = parameters.some((p) => p.rules.some((r) => CORE_BANKING_FIELD_KEYS.has(normalizeFieldName(r.field))));
+    if (needsBank && !features.coreBanking) {
+      return refuse(product, 'We could not check your bank records just now. Please try again in a few minutes.');
     }
     const scored = scoreBorrower(
       parameters.map((p) => ({

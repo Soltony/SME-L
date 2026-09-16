@@ -9,6 +9,7 @@ import { centsToNumber, toCents } from '@/lib/money';
 import { formatDateTime, maskAccount } from '@/lib/format';
 import { DOCUMENT_KINDS, missingDocuments, parseRequiredDocuments } from '@/lib/documents';
 import { evaluateEligibility } from '@/lib/lending/eligibility';
+import { prepareCoreBankingForProduct } from '@/lib/lending/core-banking-profile';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ActionDialog } from '@/components/admin/action-dialog';
@@ -39,6 +40,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const missing = missingDocuments(required, { files: uploaded.keys(), answers: answers.keys() });
   const open = application.status === 'SUBMITTED';
   // Re-evaluated now: the reviewer decides on today's position, not the one at submission.
+  if (open) await prepareCoreBankingForProduct(application.borrowerId, application.productId);
   const now = open
     ? await evaluateEligibility(prisma, application.borrower, application.productId, { excludeApplicationId: application.id })
     : null;

@@ -4,8 +4,9 @@ import { boolish } from './terms';
 /**
  * Rule-based credit scoring.
  *
- * A provider defines parameters ("Monthly income", weight 30), each with rules
- * that award points when a borrower field satisfies a condition. A parameter
+ * A provider picks parameters from the fields it can score on ("Net monthly
+ * income", weight 30 — see `scoring-fields.ts`), each with rules that award
+ * points when the borrower's value satisfies a condition. A parameter
  * contributes the best score among its matching rules, capped at its weight,
  * and the total picks a loan-amount tier.
  *
@@ -105,7 +106,6 @@ export function evaluateRule(input: unknown, operator: ScoringOperator, ruleValu
 
 export const scoringRuleSchema = z
   .object({
-    field: z.string().trim().min(1, 'Choose a field.').max(100),
     operator: z.enum(SCORING_OPERATORS),
     value: z.string().trim().max(500),
     score: z.coerce.number().int().min(0, 'Points cannot be negative.').max(1000),
@@ -115,11 +115,37 @@ export const scoringRuleSchema = z
     if (error) ctx.addIssue({ code: 'custom', path: ['value'], message: error });
   });
 
-export const scoringParameterSchema = z.object({
-  name: z.string().trim().min(1, 'Name the parameter.').max(100),
-  weight: z.coerce.number().int().min(1, 'Weight must be at least 1.').max(1000),
-  rules: z.array(scoringRuleSchema).min(1, 'Add at least one rule.').max(50),
-});
+/**
+ * A parameter is one field, chosen from the provider's field list, with the
+ * rules that award points for its value. Every rule scores the parameter's
+ * field; `name` is the field's label, for the score breakdown. Whether the
+ * field exists is checked against the provider's list by the caller
+ * (`modelFieldIssues`), since that list depends on the provider's data sets.
+ */
+export const scoringParameterSchema = z
+  .object({
+    field: z.string().trim().min(1, 'Choose a parameter.').max(100),
+    name: z.string().trim().max(100).optional(),
+    weight: z.coerce.number().int().min(1, 'Weight must be at least 1.').max(1000),
+    rules: z.array(scoringRuleSchema).min(1, 'Add at least one rule.').max(50),
+  })
+  .superRefine((parameter, ctx) => {
+    parameter.rules.forEach((rule, ruleIndex) => {
+      if (rule.score > parameter.weight) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['rules', ruleIndex, 'score'],
+          message: `Points cannot exceed the parameter weight (${parameter.weight}).`,
+        });
+      }
+    });
+  })
+  .transform((p) => ({
+    field: p.field,
+    name: p.name || p.field,
+    weight: p.weight,
+    rules: p.rules.map((rule) => ({ field: p.field, ...rule })),
+  }));
 
 export const scoringModelSchema = z
   .array(scoringParameterSchema)
@@ -127,24 +153,21 @@ export const scoringModelSchema = z
   .superRefine((parameters, ctx) => {
     const seen = new Set<string>();
     parameters.forEach((parameter, index) => {
-      const key = normalizeFieldName(parameter.name);
+      // Two parameters on one field would score it twice.
+      const key = normalizeFieldName(parameter.field);
       if (seen.has(key)) {
-        ctx.addIssue({ code: 'custom', path: [index, 'name'], message: 'Parameter names must be unique.' });
+        ctx.addIssue({ code: 'custom', path: [index, 'field'], message: `${parameter.name} is already scored by another parameter.` });
       }
       seen.add(key);
-      parameter.rules.forEach((rule, ruleIndex) => {
-        if (rule.score > parameter.weight) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [index, 'rules', ruleIndex, 'score'],
-            message: `Points cannot exceed the parameter weight (${parameter.weight}).`,
-          });
-        }
-      });
     });
   });
 
-export type ScoringParameterInput = z.infer<typeof scoringParameterSchema>;
+/** What scoring needs: stored models, and models on screen, both fit. */
+export interface ScoringParameterInput {
+  name: string;
+  weight: number;
+  rules: { field: string; operator: ScoringOperator; value: string; score: number }[];
+}
 
 export interface ScoreBreakdown {
   parameter: string;

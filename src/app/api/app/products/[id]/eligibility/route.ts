@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { handle, isBorrowerFailure, requireBorrower, tooManyRequests } from '@/lib/api';
 import { evaluateEligibilityNow } from '@/lib/lending/eligibility';
+import { prepareCoreBankingForProduct } from '@/lib/lending/core-banking-profile';
 import { centsToNumber } from '@/lib/money';
 import { consumeRateLimit } from '@/lib/rate-limit';
 
@@ -14,6 +15,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params;
   return handle(async () => {
+    await prepareCoreBankingForProduct(ctx.borrower.id, id);
     const result = await evaluateEligibilityNow(ctx.borrower, id);
     const product = await prisma.loanProduct.findUnique({ where: { id }, select: { providerId: true } });
     const [terms, accepted, accounts] = await Promise.all([

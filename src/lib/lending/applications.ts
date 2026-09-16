@@ -8,6 +8,7 @@ import { missingDocuments, parseRequiredDocuments } from '@/lib/documents';
 import { notifyBorrower } from '@/lib/notifications';
 import { getSettings } from '@/lib/settings';
 import { evaluateEligibility } from './eligibility';
+import { prepareCoreBankingForProduct } from './core-banking-profile';
 import { createLoanFromApplicationInTx, type Actor } from './loan-service';
 import { executeDisbursement, type DisbursementRunStatus } from './disbursement';
 
@@ -37,6 +38,8 @@ export interface SubmitApplicationResult {
  */
 export async function submitApplication(input: SubmitApplicationInput): Promise<SubmitApplicationResult> {
   const actor: Actor = { id: input.borrower.phoneNumber, type: 'BORROWER' };
+  // Outside the transaction: the bank is not called while the borrower lock is held.
+  await prepareCoreBankingForProduct(input.borrower.id, input.productId);
 
   const created = await prisma.$transaction(async (tx) => {
     await acquireAppLock(tx, locks.borrower(input.borrower.id));
@@ -170,11 +173,12 @@ export async function approveApplication(
 ) {
   const header = await prisma.loanApplication.findUnique({
     where: { id: applicationId },
-    select: { borrowerId: true, providerId: true },
+    select: { borrowerId: true, providerId: true, productId: true },
   });
   if (!header || (reviewer.providerId && header.providerId !== reviewer.providerId)) {
     throw new ApiError(404, 'Application not found.');
   }
+  await prepareCoreBankingForProduct(header.borrowerId, header.productId);
 
   const actor: Actor = { id: reviewer.id, name: reviewer.fullName, type: 'ADMIN' };
 

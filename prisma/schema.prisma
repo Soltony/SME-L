@@ -419,6 +419,7 @@ model Borrower {
   intents      PaymentIntent[]
   acceptances  TermsAcceptance[]
   phones       BorrowerPhone[]
+  coreBanking  BorrowerCoreBankingProfile?
 
   @@index([status])
   @@index([isNpl])
@@ -447,6 +448,23 @@ model BorrowerPhone {
 
   @@index([borrowerId])
   @@index([isCurrent])
+}
+
+/// What core banking says about a borrower, reduced to the figures scoring
+/// uses: income, age, time with the bank, and six months of account activity
+/// across their verified accounts. Raw statements and personal details are not
+/// kept. Refreshed when older than a day, outside any transaction.
+model BorrowerCoreBankingProfile {
+  id           String    @id @default(cuid())
+  borrowerId   String    @unique
+  borrower     Borrower  @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// JSON: scoring field key → value.
+  values       String    @db.NVarChar(Max)
+  accountCount Int       @default(0)
+  /// Last time every account was read successfully; null until then.
+  fetchedAt    DateTime?
+  attemptedAt  DateTime
+  lastError    String?   @db.NVarChar(1000)
 }
 
 /// Accounts core banking confirmed belong to the borrower. A loan can only be

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ZodError } from 'zod';
 import prisma from '@/lib/prisma';
 import { ApiError, assertProviderAccess, handle, isGuardFailure, jsonError, readJsonBody, requirePermission } from '@/lib/api';
 import { hasPermission } from '@/lib/permissions';
@@ -6,7 +7,10 @@ import { requestChange } from '@/lib/approvals';
 import { createAuditLog } from '@/lib/audit-log';
 import { dataConfigSchema } from '@/lib/data-provisioning';
 import { getBorrowerFeatures } from '@/lib/lending/eligibility';
-import { scoreBorrower, scoringModelSchema, type ScoringOperator } from '@/lib/lending/scoring';
+import { normalizeFieldName, scoreBorrower, scoringModelSchema, type ScoringOperator } from '@/lib/lending/scoring';
+import { CORE_BANKING_FIELD_KEYS, findField, modelFieldIssues } from '@/lib/lending/scoring-fields';
+import { providerFieldCatalogue } from '@/lib/lending/field-catalogue';
+import { refreshCoreBankingProfile } from '@/lib/lending/core-banking-profile';
 import { parseEthiopianMobile } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +53,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         const phone = parseEthiopianMobile(String(body.phone));
         if (!phone) return jsonError('Enter a valid phone number.', 400, { field: 'phone' });
         const borrower = await prisma.borrower.findUnique({ where: { phoneNumber: phone } });
+        const usesBank = parameters.some((p) => p.rules.some((r) => CORE_BANKING_FIELD_KEYS.has(normalizeFieldName(r.field))));
+        if (borrower && usesBank) await refreshCoreBankingProfile(borrower.id);
         const features = await getBorrowerFeatures(prisma, { id: borrower?.id ?? '__none__', phoneNumber: phone }, providerId);
         values = features.values;
       } else if (body.values && typeof body.values === 'object') {
@@ -59,6 +65,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
     if (action === 'save-model') {
       if (!hasPermission(user, 'credit-scoring', 'update')) return jsonError('You do not have permission to change scoring.', 403);
+      const parsed = scoringModelSchema.parse(body.parameters);
+      const catalogue = await providerFieldCatalogue(prisma, providerId);
+      const issues = modelFieldIssues(parsed, catalogue);
+      if (issues.length) {
+        throw new ZodError(issues.map((issue) => ({ code: 'custom' as const, path: issue.path, message: issue.message })));
+      }
       const existing = await prisma.scoringParameter.findMany({
         where: { providerId },
         orderBy: { sortOrder: 'asc' },
@@ -67,8 +79,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
       const change = await requestChange({
         kind: 'ScoringModel.UPDATE',
         entityId: providerId,
-        payload: { parameters: body.parameters },
-        previousData: { parameters: existing.map((p) => ({ name: p.name, weight: p.weight, rules: p.rules })) },
+        // Stored under the field's key and labelled as the list shows it.
+        payload: {
+          parameters: parsed.map((p) => {
+            const field = findField(catalogue, p.field)!;
+            return { ...p, field: field.key, name: field.label };
+          }),
+        },
+        previousData: {
+          parameters: existing.map((p) => ({ field: p.rules[0]?.field ?? p.name, name: p.name, weight: p.weight, rules: p.rules })),
+        },
         summary: `Replace the scoring model for ${provider.name}`,
         user,
       });

@@ -9,6 +9,8 @@ import { invalidateSettingsCache, SETTINGS_BY_KEY, validateSettingValue } from '
 import { provisionChartOfAccounts } from './accounting/ledger';
 import { productSchema, providerSchema, taxRuleSchema, termsSchema } from './lending/catalog';
 import { scoringModelSchema, tiersSchema } from './lending/scoring';
+import { modelFieldIssues } from './lending/scoring-fields';
+import { providerFieldCatalogue } from './lending/field-catalogue';
 import {
   postCapitalInTx,
   recordRepaymentInTx,
@@ -216,6 +218,9 @@ export const CHANGE_HANDLERS = {
       if (!id) throw new ApiError(400, 'Missing provider.');
       const provider = await tx.loanProvider.findUnique({ where: { id }, select: { id: true } });
       if (!provider) throw new ApiError(404, 'Provider not found.');
+      // Checked again: a data set column the model scores may have gone since it was requested.
+      const [issue] = modelFieldIssues(p.parameters, await providerFieldCatalogue(tx, id));
+      if (issue) throw new ApiError(409, issue.message);
       const existing = await tx.scoringParameter.findMany({ where: { providerId: id }, select: { id: true } });
       if (existing.length) {
         await tx.scoringRule.deleteMany({ where: { parameterId: { in: existing.map((e) => e.id) } } });

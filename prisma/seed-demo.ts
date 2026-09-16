@@ -234,14 +234,19 @@ async function main() {
         { field: 'Years in business', operator: '<', value: '2', score: 8 },
       ],
     },
+    // One field per parameter, as the scoring editor builds them.
     {
-      name: 'Repayment history',
-      weight: 30,
+      name: 'Loans repaid on time or early',
+      weight: 20,
       rules: [
-        { field: 'onTimeLoans', operator: '>=', value: '2', score: 30 },
-        { field: 'onTimeLoans', operator: '>=', value: '1', score: 22 },
-        { field: 'disbursedLoans', operator: '==', value: '0', score: 15 },
+        { field: 'onTimeLoans', operator: '>=', value: '2', score: 20 },
+        { field: 'onTimeLoans', operator: '>=', value: '1', score: 15 },
       ],
+    },
+    {
+      name: 'Loans received',
+      weight: 10,
+      rules: [{ field: 'disbursedLoans', operator: '==', value: '0', score: 10 }],
     },
   ];
   for (const [index, p] of params.entries()) {

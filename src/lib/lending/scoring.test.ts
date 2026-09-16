@@ -39,14 +39,15 @@ describe('evaluateRule', () => {
 describe('scoreBorrower', () => {
   const model = scoringModelSchema.parse([
     {
+      field: 'Monthly revenue',
       name: 'Revenue',
       weight: 40,
       rules: [
-        { field: 'Monthly revenue', operator: '>=', value: '100000', score: 40 },
-        { field: 'Monthly revenue', operator: '>=', value: '20000', score: 15 },
+        { operator: '>=', value: '100000', score: 40 },
+        { operator: '>=', value: '20000', score: 15 },
       ],
     },
-    { name: 'History', weight: 30, rules: [{ field: 'onTimeLoans', operator: '>=', value: '1', score: 30 }] },
+    { field: 'onTimeLoans', name: 'History', weight: 30, rules: [{ operator: '>=', value: '1', score: 30 }] },
   ]);
 
   it('takes the best matching rule per parameter, capped at its weight', () => {
@@ -60,7 +61,7 @@ describe('scoreBorrower', () => {
 describe('model validation', () => {
   it('refuses rules worth more than their parameter and malformed ranges', () => {
     const parsed = scoringModelSchema.safeParse([
-      { name: 'A', weight: 10, rules: [{ field: 'x', operator: 'between', value: '9,1', score: 20 }] },
+      { field: 'x', weight: 10, rules: [{ operator: 'between', value: '9,1', score: 20 }] },
     ]);
     expect(parsed.success).toBe(false);
     const messages = parsed.success ? [] : parsed.error.issues.map((i) => i.message).join(' ');

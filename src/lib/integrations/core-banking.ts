@@ -191,3 +191,156 @@ export async function sendDisbursement(input: {
     };
   }
 }
+
+// ----------------------------------------
+// Customer information and account statements, for credit scoring
+// ----------------------------------------
+
+/** What the customer-information service says about an account holder. Only what scoring uses is kept. */
+export interface CbsCustomerInfo {
+  netMonthlyIncome: number | null;
+  /** YYYY-MM-DD, or null when missing or unreadable. */
+  dateOfBirth: string | null;
+  accountOpeningDate: string | null;
+  occupation: string | null;
+  region: string | null;
+  city: string | null;
+}
+
+export interface CbsStatementLine {
+  /** YYYY-MM-DD */
+  date: string | null;
+  credit: number;
+  debit: number;
+  balance: number | null;
+  /** Who the money came from or went to, as the bank describes it. */
+  counterparty: string | null;
+}
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+/**
+ * A core-banking date as YYYY-MM-DD. The services are not consistent: the same
+ * bank answers with 20250104, 2025-01-04, 04 JAN 25 and 04-JAN-2025.
+ */
+export function parseCbsDate(value: unknown): string | null {
+  const text = String(value ?? '').trim().toUpperCase();
+  if (!text) return null;
+  let y: number, m: number, d: number;
+  let match: RegExpMatchArray | null;
+  if ((match = text.match(/^(\d{4})-?(\d{2})-?(\d{2})/))) {
+    [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  } else if ((match = text.match(/^(\d{1,2})[\s/-]([A-Z]{3})[A-Z]*[\s/-](\d{2}|\d{4})$/))) {
+    const month = MONTHS.indexOf(match[2]);
+    if (month === -1) return null;
+    y = Number(match[3]);
+    // A two-digit year that would be in the future is last century: "15 MAR 90" is a birth date in 1990.
+    if (y < 100) y += 2000 + y > new Date().getUTCFullYear() ? 1900 : 2000;
+    [m, d] = [month + 1, Number(match[1])];
+  } else if ((match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) {
+    [d, m, y] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  } else {
+    return null;
+  }
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function cbsNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).replace(/[^0-9.-]+/g, '');
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
+}
+
+function cbsText(value: unknown): string | null {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  return text ? text.slice(0, 80) : null;
+}
+
+/** The fields of a customer-information response, whichever envelope it arrives in. */
+export function parseCustomerInfo(json: unknown): CbsCustomerInfo {
+  const root = (json ?? {}) as Record<string, unknown>;
+  const detail = (root.detail ?? root.details ?? root) as Record<string, unknown>;
+  const pick = (...keys: string[]) => {
+    for (const key of keys) if (detail?.[key] !== undefined && detail[key] !== null) return detail[key];
+    return null;
+  };
+  return {
+    netMonthlyIncome: cbsNumber(pick('NetMonthlyIncome', 'netMonthlyIncome')),
+    dateOfBirth: parseCbsDate(pick('DateOfBirth', 'dateOfBirth')),
+    accountOpeningDate: parseCbsDate(pick('AccountOpeningDate', 'accountOpeningDate')),
+    occupation: cbsText(pick('Occupation', 'occupation')),
+    region: cbsText(pick('ResidenceRegion', 'residenceRegion', 'Region')),
+    city: cbsText(pick('City', 'city')),
+  };
+}
+
+/** The lines of a statement response, whichever envelope it arrives in. */
+export function parseStatement(json: unknown): CbsStatementLine[] {
+  const root = (json ?? {}) as Record<string, unknown>;
+  const details = (root.details ?? root.detail ?? root) as Record<string, unknown>;
+  const rows = details?.statementDetails ?? (root as Record<string, unknown>).statementDetails;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((raw) => {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    return {
+      date: parseCbsDate(row.ValueDate ?? row.valueDate ?? row.BookDate ?? row.bookDate),
+      credit: Math.max(0, cbsNumber(row.Credit ?? row.credit) ?? 0),
+      debit: Math.abs(cbsNumber(row.Debit ?? row.debit) ?? 0),
+      balance: cbsNumber(row.ClosingBalance ?? row.closingBalance),
+      counterparty: cbsText(row.Reference ?? row.reference ?? row.Narrative ?? row.narrative ?? row.Description ?? row.description),
+    };
+  });
+}
+
+/** Deterministic per account, so a simulated borrower scores the same every time. */
+function simulatedSeed(accountNumber: string) {
+  return Number(accountNumber.replace(/\D/g, '').slice(-6) || '0');
+}
+
+export async function fetchCustomerInfo(accountNumber: string): Promise<CbsCustomerInfo> {
+  if (isCbsSimulated()) {
+    const seed = simulatedSeed(accountNumber);
+    return {
+      netMonthlyIncome: 8000 + (seed % 12) * 2500,
+      dateOfBirth: `${1970 + (seed % 30)}-0${1 + (seed % 9)}-15`,
+      accountOpeningDate: `${2012 + (seed % 12)}-0${1 + (seed % 9)}-01`,
+      occupation: ['Trader', 'Farmer', 'Civil servant', 'Driver'][seed % 4],
+      region: ['Addis Ababa', 'Oromia', 'Amhara', 'Sidama'][seed % 4],
+      city: ['Addis Ababa', 'Adama', 'Bahir Dar', 'Hawassa'][seed % 4],
+    };
+  }
+  const url = env('CBS_CUSTOMER_INFO_URL', 'EXTERNAL_CUSTOMER_INFO_URL');
+  if (!url) throw new CoreBankingError('The customer information service is not configured.');
+  const { response, json } = await postJson(url, { accountNumber });
+  if (!response.ok) throw new CoreBankingError(`Customer information lookup failed with status ${response.status}.`);
+  return parseCustomerInfo(json);
+}
+
+const yyyymmdd = (date: Date) => date.toISOString().slice(0, 10).replace(/-/g, '');
+
+export async function fetchAccountStatement(accountNumber: string, from: Date, to: Date): Promise<CbsStatementLine[]> {
+  if (isCbsSimulated()) {
+    const seed = simulatedSeed(accountNumber);
+    const lines: CbsStatementLine[] = [];
+    let balance = 2000 + (seed % 7) * 1500;
+    for (let month = 0; month < 6; month += 1) {
+      const date = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - month, 10)).toISOString().slice(0, 10);
+      const deposit = 6000 + (seed % 9) * 1800 + month * 250;
+      balance += deposit;
+      lines.push({ date, credit: deposit, debit: 0, balance, counterparty: `Customer ${1 + ((seed + month) % 5)}` });
+      const spend = Math.round(deposit * (0.55 + (seed % 4) * 0.1));
+      balance -= spend;
+      lines.push({ date, credit: 0, debit: spend, balance, counterparty: 'Supplier' });
+    }
+    return lines;
+  }
+  const url = env('CBS_STATEMENT_URL', 'EXTERNAL_STATEMENT_URL');
+  if (!url) throw new CoreBankingError('The account statement service is not configured.');
+  const { response, json } = await postJson(url, { accountNumber, startDate: yyyymmdd(from), endDate: yyyymmdd(to) });
+  if (!response.ok) throw new CoreBankingError(`Statement lookup failed with status ${response.status}.`);
+  return parseStatement(json);
+}

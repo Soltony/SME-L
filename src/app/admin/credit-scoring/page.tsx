@@ -3,7 +3,9 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { formatDateTime } from '@/lib/format';
 import { parseColumns } from '@/lib/data-provisioning';
-import { HISTORY_FIELDS } from '@/lib/lending/eligibility';
+import { providerFieldCatalogue } from '@/lib/lending/field-catalogue';
+import { oneFieldPerParameter } from '@/lib/lending/scoring-fields';
+import { isCbsSimulated } from '@/lib/dev-switches';
 import { PageHeader } from '@/components/admin/page-header';
 import { FilterBar } from '@/components/admin/data-shell';
 import { FilterSubmit, SelectFilter } from '@/components/admin/filters';
@@ -45,9 +47,9 @@ export default async function CreditScoringPage({ searchParams }: { searchParams
     prisma.pendingChange.count({ where: { entityType: 'ScoringModel', entityId: providerId, status: 'PENDING' } }),
   ]);
 
-  const fields = Array.from(
-    new Set([...configs.flatMap((c) => parseColumns(c.columns).filter((col) => !col.isIdentifier).map((col) => col.name)), ...HISTORY_FIELDS])
-  );
+  const catalogue = await providerFieldCatalogue(prisma, providerId);
+  // Stored models may predate one field per parameter; the editor shows them split.
+  const model = oneFieldPerParameter(parameters);
 
   return (
     <>
@@ -68,12 +70,14 @@ export default async function CreditScoringPage({ searchParams }: { searchParams
       <ScoringEditor
         key={providerId}
         providerId={providerId}
-        fields={fields}
+        catalogue={catalogue}
+        bankSimulated={isCbsSimulated()}
         canSubmit={hasPermission(user, 'credit-scoring', 'update')}
-        initial={parameters.map((p) => ({
-          name: p.name,
+        wasSplit={model.split}
+        initial={model.parameters.map((p) => ({
+          field: p.field,
           weight: String(p.weight),
-          rules: p.rules.map((r) => ({ field: r.field, operator: r.operator, value: r.value, score: String(r.score) })),
+          rules: p.rules.map((r) => ({ operator: r.operator, value: r.value, score: String(r.score) })),
         }))}
       />
 
@@ -81,7 +85,7 @@ export default async function CreditScoringPage({ searchParams }: { searchParams
         <div>
           <h2 className="font-semibold">Borrower data sets</h2>
           <p className="text-sm text-muted-foreground">
-            Spreadsheets of borrower attributes the rules can use. Built-in history fields: {HISTORY_FIELDS.join(', ')}.
+            Spreadsheets of your own borrower attributes. Their number and text columns appear in the parameter list above, alongside core banking and loan history.
           </p>
         </div>
         {hasPermission(user, 'credit-scoring', 'create') && <NewDataSet providerId={providerId} />}
