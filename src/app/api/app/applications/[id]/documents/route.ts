@@ -1,11 +1,12 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { unlink } from 'node:fs/promises';
 import prisma from '@/lib/prisma';
-import { ApiError, handle, isBorrowerFailure, jsonError, requireBorrower, tooManyRequests } from '@/lib/api';
+import { ApiError, handle, isBorrowerFailure, jsonError, readJsonBody, requireBorrower, tooManyRequests } from '@/lib/api';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import {
   cleanFileName,
   DocumentError,
+  MAX_ANSWER_LENGTH,
   MAX_DOCUMENT_BYTES,
   parseRequiredDocuments,
   resolveDocumentPath,
@@ -16,7 +17,11 @@ import { createAuditLog } from '@/lib/audit-log';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** Uploads one requested document to the borrower's own, still-open application. */
+/**
+ * Provides one requested document for the borrower's own, still-open
+ * application: a file as multipart form data, or — for a document the product
+ * asks to be typed — `{ documentKey, value }` as JSON.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireBorrower();
   if (isBorrowerFailure(ctx)) return ctx.response;
@@ -29,6 +34,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
+  const isFile = (req.headers.get('content-type') ?? '').includes('multipart/form-data');
+  // Read before `handle`, so a body carrying markup is refused the standard way.
+  const json = isFile ? null : await readJsonBody<Record<string, unknown>>(req);
+  if (json instanceof NextResponse) return json;
+
   return handle(async () => {
     const application = await prisma.loanApplication.findFirst({
       where: { id, borrowerId: ctx.borrower.id },
@@ -39,19 +49,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new ApiError(409, 'Documents can only be added while the application is under review.');
     }
 
-    const form = await req.formData().catch(() => null);
-    if (!form) throw new ApiError(400, 'Upload the file as multipart form data.');
-    const documentKey = String(form.get('documentKey') || '');
-    const file = form.get('file');
-    const required = parseRequiredDocuments(application.product.requiredDocuments);
-    if (!required.some((d) => d.key === documentKey)) {
-      throw new ApiError(400, 'This document is not requested for this product.', 'documentKey');
+    const form = isFile ? await req.formData().catch(() => null) : null;
+    if (isFile && !form) throw new ApiError(400, 'Upload the file as multipart form data.');
+    const documentKey = String((isFile ? form?.get('documentKey') : json?.documentKey) || '');
+    const requested = parseRequiredDocuments(application.product.requiredDocuments).find((d) => d.key === documentKey);
+    if (!requested) throw new ApiError(400, 'This document is not requested for this product.', 'documentKey');
+
+    if (requested.type === 'TEXT') {
+      if (isFile) throw new ApiError(400, `${requested.name} is typed in, not uploaded.`, 'file');
+      const value = String(json?.value ?? '').trim();
+      if (!value) throw new ApiError(400, `Enter your ${requested.name}.`, 'value');
+      if (value.length > MAX_ANSWER_LENGTH) throw new ApiError(400, `Keep it under ${MAX_ANSWER_LENGTH} characters.`, 'value');
+
+      const previous = await prisma.applicationAnswer.findUnique({
+        where: { applicationId_documentKey: { applicationId: application.id, documentKey } },
+        select: { id: true },
+      });
+      await prisma.applicationAnswer.upsert({
+        where: { applicationId_documentKey: { applicationId: application.id, documentKey } },
+        create: { applicationId: application.id, documentKey, value },
+        update: { value, answeredAt: new Date() },
+      });
+      await createAuditLog({
+        actorId: ctx.borrower.phoneNumber,
+        actorType: 'BORROWER',
+        action: previous ? 'ANSWER_REPLACED' : 'ANSWER_PROVIDED',
+        entity: 'LoanApplication',
+        entityId: application.id,
+        details: { documentKey, length: value.length },
+      });
+      return { ok: true, documentKey };
     }
+
+    if (!isFile) throw new ApiError(400, `Upload ${requested.name} as a file.`, 'file');
+    const file = form!.get('file');
     if (!(file instanceof File)) throw new ApiError(400, 'Choose a file to upload.', 'file');
 
     let stored;
     try {
-      stored = await storeDocument(new Uint8Array(await file.arrayBuffer()));
+      stored = await storeDocument(new Uint8Array(await file.arrayBuffer()), requested.type);
     } catch (error) {
       if (error instanceof DocumentError) throw new ApiError(400, error.message, 'file');
       throw error;

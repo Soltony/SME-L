@@ -7,7 +7,7 @@ import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { centsToNumber, toCents } from '@/lib/money';
 import { formatDateTime, maskAccount } from '@/lib/format';
-import { parseRequiredDocuments } from '@/lib/documents';
+import { DOCUMENT_KINDS, missingDocuments, parseRequiredDocuments } from '@/lib/documents';
 import { evaluateEligibility } from '@/lib/lending/eligibility';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -27,6 +27,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
       product: true,
       provider: { select: { name: true } },
       documents: { orderBy: { uploadedAt: 'asc' } },
+      answers: true,
     },
   });
   if (!application || (user.providerId && application.providerId !== user.providerId)) notFound();
@@ -34,7 +35,8 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const required = parseRequiredDocuments(application.product.requiredDocuments);
   const uploaded = new Map(application.documents.map((d) => [d.documentKey, d]));
-  const missing = required.filter((d) => !uploaded.has(d.key));
+  const answers = new Map(application.answers.map((a) => [a.documentKey, a]));
+  const missing = missingDocuments(required, { files: uploaded.keys(), answers: answers.keys() });
   const open = application.status === 'SUBMITTED';
   // Re-evaluated now: the reviewer decides on today's position, not the one at submission.
   const now = open
@@ -97,7 +99,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
 
       {open && missing.length > 0 && (
         <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-          Waiting for the borrower to upload: {missing.map((d) => d.name).join(', ')}. It cannot be approved until they do.
+          Waiting for the borrower to provide: {missing.map((d) => d.name).join(', ')}. It cannot be approved until they do.
         </div>
       )}
 
@@ -163,13 +165,31 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
           ) : (
             <ul className="space-y-2">
               {required.map((doc) => {
+                if (doc.type === 'TEXT') {
+                  const answer = answers.get(doc.key);
+                  return (
+                    <li key={doc.key} className="rounded-md border border-border p-2">
+                      <span className="block font-medium">{doc.name}</span>
+                      {answer ? (
+                        <>
+                          <span className="block break-words">{answer.value}</span>
+                          <span className="block text-xs text-muted-foreground">Typed · {formatDateTime(answer.answeredAt)}</span>
+                        </>
+                      ) : (
+                        <span className="block text-xs text-muted-foreground">Not provided · typed answer</span>
+                      )}
+                    </li>
+                  );
+                }
                 const file = uploaded.get(doc.key);
                 return (
                   <li key={doc.key} className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
                     <span>
                       <span className="block font-medium">{doc.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {file ? `${file.fileName} · ${(file.sizeBytes / 1024).toFixed(0)} KB · ${formatDateTime(file.uploadedAt)}` : 'Not uploaded'}
+                        {file
+                          ? `${file.fileName} · ${(file.sizeBytes / 1024).toFixed(0)} KB · ${formatDateTime(file.uploadedAt)}`
+                          : `Not uploaded · ${DOCUMENT_KINDS[doc.type].label.toLowerCase()}`}
                       </span>
                     </span>
                     {file && (

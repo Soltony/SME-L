@@ -4,7 +4,7 @@ import { acquireAppLock, locks } from '@/lib/db-lock';
 import { createAuditLogInTx } from '@/lib/audit-log';
 import { centsToDecimal, formatMoney, toCents, type Cents } from '@/lib/money';
 import { nextNumber } from '@/lib/numbering';
-import { parseRequiredDocuments } from '@/lib/documents';
+import { missingDocuments, parseRequiredDocuments } from '@/lib/documents';
 import { notifyBorrower } from '@/lib/notifications';
 import { getSettings } from '@/lib/settings';
 import { evaluateEligibility } from './eligibility';
@@ -182,15 +182,21 @@ export async function approveApplication(
     await acquireAppLock(tx, locks.borrower(header.borrowerId));
     const application = await tx.loanApplication.findUniqueOrThrow({
       where: { id: applicationId },
-      include: { borrower: true, product: true, documents: { select: { documentKey: true } } },
+      include: {
+        borrower: true,
+        product: true,
+        documents: { select: { documentKey: true } },
+        answers: { select: { documentKey: true } },
+      },
     });
     if (application.status !== 'SUBMITTED') {
       throw new ApiError(409, `This application is already ${application.status.toLowerCase()}.`);
     }
 
-    const required = parseRequiredDocuments(application.product.requiredDocuments);
-    const uploaded = new Set(application.documents.map((d) => d.documentKey));
-    const missing = required.filter((d) => !uploaded.has(d.key));
+    const missing = missingDocuments(parseRequiredDocuments(application.product.requiredDocuments), {
+      files: application.documents.map((d) => d.documentKey),
+      answers: application.answers.map((a) => a.documentKey),
+    });
     if (missing.length) {
       throw new ApiError(409, `Documents still missing: ${missing.map((d) => d.name).join(', ')}.`);
     }

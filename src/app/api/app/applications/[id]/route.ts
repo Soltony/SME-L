@@ -17,6 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         product: { select: { name: true, requiredDocuments: true } },
         provider: { select: { name: true } },
         documents: { select: { documentKey: true, fileName: true, uploadedAt: true } },
+        answers: { select: { documentKey: true, value: true, answeredAt: true } },
       },
     });
     if (!application) throw new ApiError(404, 'Application not found.');
@@ -32,6 +33,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       loanId: application.loanId,
       requiredDocuments: parseRequiredDocuments(application.product.requiredDocuments),
       documents: application.documents,
+      answers: application.answers,
       createdAt: application.createdAt.toISOString(),
     };
   });

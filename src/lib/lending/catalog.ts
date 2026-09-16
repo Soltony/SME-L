@@ -3,6 +3,7 @@ import type { LoanProduct, LoanProvider } from '@prisma/client';
 import { boolish, parsePenaltyRules, productPricingSchema } from './terms';
 import { DEFAULT_PROVIDER_ICON, isValidProviderIcon, MAX_PROVIDER_ICON_URI_LENGTH, PROVIDER_ICON_ERROR } from '../provider-icon';
 import { loanCycleSchema, parseLoanCycle } from './scoring';
+import { DOCUMENT_KIND_KEYS, parseRequiredDocuments } from '../documents';
 
 /** Validation for providers, products, taxes and terms — shared by maker and checker. */
 
@@ -47,6 +48,8 @@ export const requiredDocumentSchema = z.object({
     .regex(/^[a-z0-9_]{2,40}$/, 'Keys use lowercase letters, digits and underscores.'),
   name: text(100).min(2),
   description: text(300).optional(),
+  /** What the borrower provides: a photo, a PDF, either, or a typed answer. */
+  type: z.enum(DOCUMENT_KIND_KEYS).default('FILE'),
 });
 
 export const productSchema = productPricingSchema.and(
@@ -134,12 +137,6 @@ export function productFormValues(p: LoanProduct) {
   } catch {
     eligibilityFilter = null;
   }
-  let requiredDocuments: { key: string; name: string; description?: string }[] = [];
-  try {
-    requiredDocuments = JSON.parse(p.requiredDocuments || '[]');
-  } catch {
-    requiredDocuments = [];
-  }
   return {
     providerId: p.providerId,
     code: p.code,
@@ -159,7 +156,7 @@ export function productFormValues(p: LoanProduct) {
     allowConcurrentLoans: p.allowConcurrentLoans,
     requiresReview: p.requiresReview,
     requiresScoring: p.requiresScoring,
-    requiredDocuments,
+    requiredDocuments: parseRequiredDocuments(p.requiredDocuments),
     eligibilityFilter,
     eligibilityListId: p.eligibilityListId,
     cycleConfig: parseLoanCycle(p.cycleConfig),

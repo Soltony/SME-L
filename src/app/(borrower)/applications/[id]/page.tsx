@@ -22,6 +22,7 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
       product: { select: { name: true, requiredDocuments: true } },
       provider: { select: { name: true } },
       documents: { select: { documentKey: true, fileName: true, uploadedAt: true } },
+      answers: { select: { documentKey: true, value: true } },
     },
   });
   if (!application) notFound();
@@ -57,8 +58,9 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
       <ApplicationActions
         applicationId={application.id}
         open={application.status === 'SUBMITTED'}
-        required={required.map((d) => ({ key: d.key, name: d.name, description: d.description ?? null }))}
+        required={required.map((d) => ({ key: d.key, name: d.name, description: d.description ?? null, type: d.type }))}
         uploaded={application.documents.map((d) => ({ key: d.documentKey, fileName: d.fileName }))}
+        answers={application.answers.map((a) => ({ key: a.documentKey, value: a.value }))}
       />
     </div>
   );

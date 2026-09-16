@@ -2,6 +2,9 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { secureUuid } from './random';
+import { DOCUMENT_KINDS, type DocumentKind } from './document-kinds';
+
+export * from './document-kinds';
 
 /**
  * Borrower documents (IDs, business licences, statements).
@@ -50,12 +53,21 @@ export function cleanFileName(name: string): string {
   return (base || 'document').slice(0, 120);
 }
 
-export async function storeDocument(bytes: Uint8Array) {
+export async function storeDocument(bytes: Uint8Array, kind: DocumentKind = 'FILE') {
   if (bytes.byteLength === 0) throw new DocumentError('The file is empty.');
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new DocumentError('The file is larger than 5 MB.');
 
   const mimeType = sniffDocumentType(bytes);
-  if (!mimeType) throw new DocumentError('Only PDF, PNG and JPEG files are accepted.');
+  const allowed: readonly string[] = DOCUMENT_KINDS[kind].mimeTypes;
+  if (!mimeType || !allowed.includes(mimeType)) {
+    throw new DocumentError(
+      kind === 'IMAGE'
+        ? 'This document must be a photo: a JPEG or PNG file.'
+        : kind === 'PDF'
+          ? 'This document must be a PDF file.'
+          : 'Only PDF, PNG and JPEG files are accepted.'
+    );
+  }
 
   const storageName = `${secureUuid()}.${DOCUMENT_TYPES[mimeType].extension}`;
   const directory = documentsDir();
@@ -92,6 +104,7 @@ export interface RequiredDocument {
   key: string;
   name: string;
   description?: string;
+  type: DocumentKind;
 }
 
 export function parseRequiredDocuments(raw: string | null | undefined): RequiredDocument[] {
@@ -101,7 +114,13 @@ export function parseRequiredDocuments(raw: string | null | undefined): Required
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((d) => d && typeof d.key === 'string' && typeof d.name === 'string')
-      .map((d) => ({ key: d.key, name: d.name, description: typeof d.description === 'string' ? d.description : undefined }));
+      .map((d) => ({
+        key: d.key,
+        name: d.name,
+        description: typeof d.description === 'string' ? d.description : undefined,
+        // Products saved before types existed asked for "photo or PDF".
+        type: typeof d.type === 'string' && d.type in DOCUMENT_KINDS ? (d.type as DocumentKind) : 'FILE',
+      }));
   } catch {
     return [];
   }

@@ -1,7 +1,9 @@
 /** Form state for the product designer. Shared by server pages and the client form. */
 
+import type { DocumentKind } from '@/lib/document-kinds';
+
 export type PenaltyRow = { fromDay: string; toDay: string; type: string; value: string; frequency: string };
-export type DocRow = { key: string; name: string; description?: string };
+export type DocRow = { key: string; name: string; description?: string; type: DocumentKind };
 export type FilterRow = { field: string; values: string };
 export type StepRow = { minCount: string; percent: string };
 /** A saved customer list the product can be restricted to. */

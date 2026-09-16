@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { DOCUMENT_KIND_KEYS, DOCUMENT_KINDS, type DocumentKind } from '@/lib/document-kinds';
 import { postJson } from './action-dialog';
 import { NewEligibilityList } from './eligibility-lists';
 
@@ -289,19 +290,38 @@ export function ProductForm({
         <section className="panel p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold">Required documents</h2>
-            <Button type="button" size="sm" variant="outline" onClick={() => set('requiredDocuments', [...v.requiredDocuments, { key: '', name: '' }])}>
+            <Button type="button" size="sm" variant="outline" onClick={() => set('requiredDocuments', [...v.requiredDocuments, { key: '', name: '', type: 'FILE' }])}>
               <Plus className="mr-1 h-3.5 w-3.5" /> Add document
             </Button>
           </div>
           {v.requiredDocuments.length === 0 && <p className="text-sm text-muted-foreground">None. Only asked for when the product is reviewed.</p>}
+          {v.requiredDocuments.length > 0 && (
+            <div className="mb-1 hidden gap-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[200px_1fr_200px_40px]">
+              <span>Key</span>
+              <span>Name shown to the borrower</span>
+              <span>Borrower provides</span>
+            </div>
+          )}
           <div className="space-y-2">
             {v.requiredDocuments.map((doc, i) => (
-              <div key={i} className="grid gap-2 md:grid-cols-[200px_1fr_40px]">
+              <div key={i} className="grid gap-2 md:grid-cols-[200px_1fr_200px_40px]">
                 <div>
                   <Input aria-label="Key" placeholder="business_licence" value={doc.key} onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, key: e.target.value } : d)))} className={cls(`requiredDocuments.${i}.key`)} />
                   {err(`requiredDocuments.${i}.key`) && <p className="text-xs text-destructive">{err(`requiredDocuments.${i}.key`)}</p>}
                 </div>
-                <Input aria-label="Name" placeholder="Business licence" value={doc.name} onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, name: e.target.value } : d)))} />
+                <Input aria-label="Name" placeholder={doc.type === 'TEXT' ? 'TIN number' : 'Business licence'} value={doc.name} onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, name: e.target.value } : d)))} />
+                <select
+                  aria-label="Borrower provides"
+                  value={doc.type}
+                  onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, type: e.target.value as DocumentKind } : d)))}
+                  className={SELECT}
+                >
+                  {DOCUMENT_KIND_KEYS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {DOCUMENT_KINDS[kind].label}
+                    </option>
+                  ))}
+                </select>
                 <Button type="button" variant="ghost" size="icon" aria-label="Remove document" onClick={() => set('requiredDocuments', v.requiredDocuments.filter((_, j) => j !== i))}>
                   <Trash2 className="h-4 w-4" />
                 </Button>

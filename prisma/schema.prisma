@@ -492,6 +492,7 @@ model LoanApplication {
   updatedAt           DateTime     @updatedAt
 
   documents ApplicationDocument[]
+  answers   ApplicationAnswer[]
   loans     Loan[]
 
   @@index([borrowerId, status])
@@ -511,6 +512,20 @@ model ApplicationDocument {
   /// Generated name inside the private storage directory; never a client path.
   storageName   String          @unique
   uploadedAt    DateTime        @default(now())
+
+  @@unique([applicationId, documentKey])
+}
+
+/// A required "document" the product asks to be typed rather than uploaded — a
+/// TIN, a licence number. Kept apart from ApplicationDocument because every
+/// column there describes a stored file.
+model ApplicationAnswer {
+  id            String          @id @default(cuid())
+  applicationId String
+  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  documentKey   String
+  value         String          @db.NVarChar(500)
+  answeredAt    DateTime        @default(now())
 
   @@unique([applicationId, documentKey])
 }
