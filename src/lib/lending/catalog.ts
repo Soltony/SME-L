@@ -1,11 +1,18 @@
 import { z } from 'zod';
 import type { LoanProduct, LoanProvider } from '@prisma/client';
 import { boolish, parsePenaltyRules, productPricingSchema } from './terms';
+import { DEFAULT_PROVIDER_ICON, isValidProviderIcon, MAX_PROVIDER_ICON_URI_LENGTH, PROVIDER_ICON_ERROR } from '../provider-icon';
 import { loanCycleSchema, parseLoanCycle } from './scoring';
 
 /** Validation for providers, products, taxes and terms — shared by maker and checker. */
 
 const text = (max: number) => z.string().trim().max(max);
+
+/** Core banking account numbers: optional, and stored as null rather than ''. */
+const accountNumber = text(34)
+  .regex(/^[0-9A-Za-z-]*$/, 'Account numbers contain only letters, digits and dashes.')
+  .optional()
+  .transform((v) => (v ? v : null));
 
 export const providerSchema = z.object({
   code: z
@@ -18,11 +25,15 @@ export const providerSchema = z.object({
     .trim()
     .regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour such as #E0A70B.')
     .default('#E0A70B'),
+  icon: z
+    .string()
+    .trim()
+    .max(MAX_PROVIDER_ICON_URI_LENGTH, PROVIDER_ICON_ERROR)
+    .refine(isValidProviderIcon, PROVIDER_ICON_ERROR)
+    .default(DEFAULT_PROVIDER_ICON),
   displayOrder: z.coerce.number().int().min(0).max(999).default(0),
-  fundingAccountNo: text(34)
-    .regex(/^[0-9A-Za-z-]*$/, 'Account numbers contain only letters, digits and dashes.')
-    .optional()
-    .transform((v) => (v ? v : null)),
+  fundingAccountNo: accountNumber,
+  collectionAccountNo: accountNumber,
   nplThresholdDays: z.coerce.number().int().min(1).max(3650).default(90),
   status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
 });
@@ -100,8 +111,10 @@ export function providerFormValues(p: LoanProvider): ProviderInput {
     code: p.code,
     name: p.name,
     colorHex: p.colorHex,
+    icon: p.icon,
     displayOrder: p.displayOrder,
     fundingAccountNo: p.fundingAccountNo,
+    collectionAccountNo: p.collectionAccountNo,
     nplThresholdDays: p.nplThresholdDays,
     status: p.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
   };

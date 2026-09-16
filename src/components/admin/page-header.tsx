@@ -3,11 +3,14 @@ import { ChevronRight } from 'lucide-react';
 
 export function PageHeader({
   title,
+  icon,
   description,
   breadcrumbs,
   actions,
 }: {
   title: string;
+  /** Shown to the left of the title, e.g. a provider's mark. */
+  icon?: React.ReactNode;
   description?: string;
   breadcrumbs?: { label: string; href?: string }[];
   actions?: React.ReactNode;
@@ -31,9 +34,12 @@ export function PageHeader({
         </nav>
       )}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        <div className="flex items-start gap-3">
+          {icon}
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+            {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+          </div>
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

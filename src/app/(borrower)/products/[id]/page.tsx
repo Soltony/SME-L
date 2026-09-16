@@ -6,6 +6,7 @@ import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
 import { productCard } from '@/lib/lending/product-view';
 import { parsePenaltyRules } from '@/lib/lending/terms';
+import { ProviderIcon } from '@/components/provider-icon';
 import { ApplyFlow } from './apply-flow';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const product = await prisma.loanProduct.findUnique({
     where: { id },
-    include: { provider: { select: { name: true, colorHex: true, status: true } } },
+    include: { provider: { select: { name: true, colorHex: true, icon: true, status: true } } },
   });
   if (!product || product.status !== 'ACTIVE' || product.provider.status !== 'ACTIVE') notFound();
   const card = productCard(product);
@@ -39,7 +40,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       </Link>
       <header>
         <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: card.providerColor }} />
+          <ProviderIcon icon={card.providerIcon} color={card.providerColor} className="h-4 w-4" />
           {card.providerName}
         </p>
         <h1 className="text-xl font-bold">{card.name}</h1>

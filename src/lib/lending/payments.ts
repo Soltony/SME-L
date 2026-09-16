@@ -109,7 +109,12 @@ export async function startWalletRepayment(input: {
     return { transactionId, status: 'COMPLETED', paymentToken: null, receiptNo };
   }
 
-  const { config, missing } = resolveGatewayConfig();
+  // Repayments are collected into the lending provider's own account.
+  const provider = await prisma.loanProvider.findUnique({
+    where: { id: quote.loan.providerId },
+    select: { collectionAccountNo: true },
+  });
+  const { config, missing } = resolveGatewayConfig(provider?.collectionAccountNo);
   if (!config) {
     console.error('[payment] gateway not configured; missing', missing.join(', '));
     throw new ApiError(503, 'Wallet repayments are not available right now.');
@@ -124,6 +129,7 @@ export async function startWalletRepayment(input: {
       channel: 'SUPERAPP',
       status: 'PENDING',
       transactionTime,
+      collectionAccountNo: config.accountNo,
     },
   });
 
@@ -141,7 +147,7 @@ export async function startWalletRepayment(input: {
       action: 'REPAYMENT_INITIATED',
       entity: 'Loan',
       entityId: input.loanId,
-      details: { transactionId, amount: centsToDecimal(input.amount) },
+      details: { transactionId, amount: centsToDecimal(input.amount), collectionAccountNo: config.accountNo },
     });
     return { transactionId, status: 'PENDING', paymentToken, receiptNo: null };
   } catch (error) {
@@ -291,7 +297,9 @@ export async function processGatewayCallback(
     return { httpStatus: 200, message: 'Transaction reference not found or already processed.' };
   }
 
-  const { config, missing } = resolveGatewayConfig();
+  // Verify against the account this payment was signed for, not whatever the
+  // provider's collection account is now — it may have changed in between.
+  const { config, missing } = resolveGatewayConfig(intent.collectionAccountNo);
   const strict = callbackStrictMode();
   if (!config) {
     console.error('[payment-callback] cannot verify signature; missing', missing.join(', '));

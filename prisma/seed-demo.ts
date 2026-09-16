@@ -80,10 +80,10 @@ const penalty = (rules: object[]) => JSON.stringify(rules);
 
 async function createProviders() {
   const asf = await prisma.loanProvider.create({
-    data: { code: 'DEMO-ASF', name: 'Addis SME Finance', colorHex: '#E0A70B', displayOrder: 1, nplThresholdDays: 60, fundingAccountNo: '1000900100' },
+    data: { code: 'DEMO-ASF', name: 'Addis SME Finance', colorHex: '#E0A70B', icon: 'Landmark', displayOrder: 1, nplThresholdDays: 60, fundingAccountNo: '1000900100', collectionAccountNo: '1000900101' },
   });
   const nmc = await prisma.loanProvider.create({
-    data: { code: 'DEMO-NMC', name: 'Nile Microcredit', colorHex: '#0E7C66', displayOrder: 2, nplThresholdDays: 30, fundingAccountNo: '1000900200' },
+    data: { code: 'DEMO-NMC', name: 'Nile Microcredit', colorHex: '#0E7C66', icon: 'PiggyBank', displayOrder: 2, nplThresholdDays: 30, fundingAccountNo: '1000900200', collectionAccountNo: '1000900201' },
   });
   for (const p of [asf, nmc]) await prisma.$transaction((tx) => provisionChartOfAccounts(tx, p.id));
   return { asf, nmc };

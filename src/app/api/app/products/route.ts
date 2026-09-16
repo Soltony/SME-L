@@ -10,7 +10,7 @@ export async function GET() {
   return handle(async () => {
     const products = await prisma.loanProduct.findMany({
       where: { status: 'ACTIVE', provider: { status: 'ACTIVE' } },
-      include: { provider: { select: { name: true, colorHex: true, displayOrder: true } } },
+      include: { provider: { select: { name: true, colorHex: true, icon: true, displayOrder: true } } },
       orderBy: [{ provider: { displayOrder: 'asc' } }, { name: 'asc' }],
     });
     return { products: products.map(productCard) };

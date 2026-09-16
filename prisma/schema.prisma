@@ -152,9 +152,15 @@ model LoanProvider {
   code                String   @unique
   name                String   @unique
   colorHex            String   @default("#E0A70B")
+  /// A curated Lucide icon name, or a base64 `data:` URI for an uploaded logo.
+  /// See src/lib/provider-icon.ts for the allowed names and the size cap.
+  icon                String   @default("Landmark") @db.NVarChar(Max)
   displayOrder        Int      @default(0)
   status              String   @default("ACTIVE") // ACTIVE | INACTIVE
   fundingAccountNo    String?
+  /// Core banking account repayments are collected into. Falls back to the
+  /// platform-wide ACCOUNT_NO when the provider has none.
+  collectionAccountNo String?
   nplThresholdDays    Int      @default(90)
   /// Principal of loans created but not yet confirmed by core banking.
   reservedFunds       Decimal  @default(0) @db.Decimal(18, 2)
@@ -581,6 +587,9 @@ model PaymentIntent {
   /// PENDING | COMPLETED | FAILED | EXPIRED
   status          String    @default("PENDING")
   transactionTime String
+  /// Account the payment was requested into, as signed: the provider's collection
+  /// account, or ACCOUNT_NO when it had none. Null for TEST payments.
+  collectionAccountNo String?
   gatewayReference String?
   failureReason   String?   @db.NVarChar(1000)
   callbackPayload String?   @db.NVarChar(Max)

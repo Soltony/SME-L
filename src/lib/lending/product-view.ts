@@ -16,6 +16,7 @@ export interface ProductCard {
   providerId: string;
   providerName: string;
   providerColor: string;
+  providerIcon: string;
   minAmount: number;
   maxAmount: number;
   durationDays: number;
@@ -40,7 +41,7 @@ function describeInterest(type: string, value: string, basis: string) {
 }
 
 export function productCard(
-  p: LoanProduct & { provider: Pick<LoanProvider, 'name' | 'colorHex'> }
+  p: LoanProduct & { provider: Pick<LoanProvider, 'name' | 'colorHex' | 'icon'> }
 ): ProductCard {
   return {
     id: p.id,
@@ -50,6 +51,7 @@ export function productCard(
     providerId: p.providerId,
     providerName: p.provider.name,
     providerColor: p.provider.colorHex,
+    providerIcon: p.provider.icon,
     minAmount: centsToNumber(toCents(p.minAmount)),
     maxAmount: centsToNumber(toCents(p.maxAmount)),
     durationDays: p.durationDays,

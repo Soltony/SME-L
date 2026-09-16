@@ -6,6 +6,7 @@ import { getSettings } from '@/lib/settings';
 import { productCard } from '@/lib/lending/product-view';
 import { buildLoanView } from '@/lib/lending/loan-view';
 import { money } from '@/components/money';
+import { ProviderIcon } from '@/components/provider-icon';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Home' };
@@ -16,7 +17,7 @@ export default async function BorrowerHome() {
     getSettings(),
     prisma.loanProduct.findMany({
       where: { status: 'ACTIVE', provider: { status: 'ACTIVE' } },
-      include: { provider: { select: { name: true, colorHex: true, displayOrder: true } } },
+      include: { provider: { select: { name: true, colorHex: true, icon: true, displayOrder: true } } },
       orderBy: [{ provider: { displayOrder: 'asc' } }, { name: 'asc' }],
     }),
     prisma.loan.findMany({
@@ -99,7 +100,7 @@ export default async function BorrowerHome() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: card.providerColor }} />
+                        <ProviderIcon icon={card.providerIcon} color={card.providerColor} className="h-4 w-4" />
                         {card.providerName}
                       </p>
                       <h3 className="mt-0.5 font-semibold">{card.name}</h3>

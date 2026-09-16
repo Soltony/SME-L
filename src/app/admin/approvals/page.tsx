@@ -8,6 +8,8 @@ import { StatusBadge } from '@/components/admin/status-badge';
 import { Pager } from '@/components/admin/data-shell';
 import { ChangeDecision } from '@/components/admin/change-decision';
 import { cn } from '@/lib/utils';
+import { isUploadedIcon } from '@/lib/provider-icon';
+import { ProviderIcon } from '@/components/provider-icon';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Approvals' };
@@ -24,6 +26,19 @@ function pretty(value: unknown): string {
   if (typeof value === 'string') return value || '—';
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value, null, 2);
+}
+
+/** A field value as the checker should see it. An icon is shown, not dumped as base64. */
+function FieldValue({ field, value }: { field: string; value: unknown }) {
+  if (field === 'icon' && typeof value === 'string' && value) {
+    return (
+      <span className="flex items-center gap-2 text-xs">
+        <ProviderIcon icon={value} className="h-6 w-6" />
+        {isUploadedIcon(value) ? `Uploaded image (${Math.ceil((value.length * 3) / 4 / 1024)} KB)` : value}
+      </span>
+    );
+  }
+  return <pre className="whitespace-pre-wrap break-words font-sans text-xs">{pretty(value)}</pre>;
 }
 
 export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
@@ -115,11 +130,11 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
                           <td className="px-3 py-2 font-medium">{key}</td>
                           {previous && (
                             <td className="px-3 py-2 text-muted-foreground">
-                              <pre className="whitespace-pre-wrap break-words font-sans text-xs">{pretty(previous[key])}</pre>
+                              <FieldValue field={key} value={previous[key]} />
                             </td>
                           )}
                           <td className="px-3 py-2">
-                            <pre className="whitespace-pre-wrap break-words font-sans text-xs">{pretty(payload[key])}</pre>
+                            <FieldValue field={key} value={payload[key]} />
                           </td>
                         </tr>
                       ))}

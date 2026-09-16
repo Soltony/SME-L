@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/admin/page-header';
 import { EmptyRow, TableCard } from '@/components/admin/data-shell';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProviderForm } from '@/components/admin/provider-form';
+import { ProviderBadge } from '@/components/provider-icon';
 import { moneyCents } from '@/components/money';
 
 export const dynamic = 'force-dynamic';
@@ -51,7 +52,7 @@ export default async function ProvidersPage() {
                 <tr key={p.id} className="hover:bg-secondary/30">
                   <td className="px-4 py-2.5">
                     <Link href={`/admin/providers/${p.id}`} className="flex items-center gap-2 font-medium text-primary hover:underline">
-                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: p.colorHex }} />
+                      <ProviderBadge icon={p.icon} color={p.colorHex} />
                       {p.name}
                     </Link>
                   </td>

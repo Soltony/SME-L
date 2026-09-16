@@ -10,6 +10,7 @@ import { EmptyRow, TableCard } from '@/components/admin/data-shell';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { Button } from '@/components/ui/button';
 import { money } from '@/components/money';
+import { ProviderIcon } from '@/components/provider-icon';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Products' };
@@ -19,7 +20,7 @@ export default async function ProductsPage() {
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const products = await prisma.loanProduct.findMany({
     where: user.providerId ? { providerId: user.providerId } : {},
-    include: { provider: { select: { name: true, colorHex: true } }, _count: { select: { loans: true, tiers: true } } },
+    include: { provider: { select: { name: true, colorHex: true, icon: true } }, _count: { select: { loans: true, tiers: true } } },
     orderBy: [{ provider: { name: 'asc' } }, { name: 'asc' }],
   });
 
@@ -65,7 +66,12 @@ export default async function ProductsPage() {
                     </Link>
                     <p className="font-mono text-xs text-muted-foreground">{product.code}</p>
                   </td>
-                  <td className="px-4 py-2.5">{product.provider.name}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="flex items-center gap-1.5">
+                      <ProviderIcon icon={product.provider.icon} color={product.provider.colorHex} className="h-4 w-4" />
+                      {product.provider.name}
+                    </span>
+                  </td>
                   <td className="num px-4 py-2.5 text-xs">
                     {money(card.minAmount, currency)} – {money(card.maxAmount)}
                   </td>

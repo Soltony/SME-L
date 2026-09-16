@@ -43,9 +43,17 @@ export interface GatewayConfig {
   key: string;
 }
 
-/** PAYMENT_* names, falling back to the NIB_PAYMENT_* names SME used. */
-export function resolveGatewayConfig(): { config: GatewayConfig | null; missing: string[] } {
-  const accountNo = process.env.ACCOUNT_NO?.trim() || '';
+/**
+ * PAYMENT_* names, falling back to the NIB_PAYMENT_* names SME used.
+ *
+ * `collectionAccountNo` is where the money should land — the loan's provider's
+ * collection account. ACCOUNT_NO is the platform-wide account used when the
+ * provider has none, and is only required in that case.
+ */
+export function resolveGatewayConfig(
+  collectionAccountNo?: string | null
+): { config: GatewayConfig | null; missing: string[] } {
+  const accountNo = collectionAccountNo?.trim() || process.env.ACCOUNT_NO?.trim() || '';
   const companyName = process.env.COMPANY_NAME?.trim() || '';
   const callbackUrl = process.env.CALLBACK_URL?.trim() || '';
   const paymentUrl = process.env.PAYMENT_URL?.trim() || process.env.NIB_PAYMENT_URL?.trim() || '';

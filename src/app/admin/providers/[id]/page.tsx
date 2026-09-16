@@ -10,6 +10,7 @@ import { providerFormValues } from '@/lib/lending/catalog';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProviderForm } from '@/components/admin/provider-form';
+import { ProviderBadge } from '@/components/provider-icon';
 import { ActionDialog } from '@/components/admin/action-dialog';
 import { StatCard, StatGrid } from '@/components/admin/stat-card';
 import { moneyCents } from '@/components/money';
@@ -40,8 +41,9 @@ export default async function ProviderDetailPage({ params }: { params: Promise<{
     <>
       <PageHeader
         title={provider.name}
+        icon={<ProviderBadge icon={provider.icon} color={provider.colorHex} className="h-11 w-11 rounded-xl" iconClassName="h-6 w-6" />}
         breadcrumbs={[{ label: 'Providers', href: '/admin/providers' }, { label: provider.name }]}
-        description={`Code ${provider.code}`}
+        description={[`Code ${provider.code}`, provider.collectionAccountNo && `collects into ${provider.collectionAccountNo}`].filter(Boolean).join(' · ')}
         actions={<StatusBadge status={provider.status} />}
       />
 
