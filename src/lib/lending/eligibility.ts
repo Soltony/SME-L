@@ -5,6 +5,7 @@ import { toCents, type Cents } from '@/lib/money';
 import { getSettings } from '@/lib/settings';
 import { OPEN_LOAN_STATUSES } from '@/lib/types';
 import { borrowerPhoneNumbers } from './borrower-identity';
+import { isOnEligibilityList, NOT_ON_LIST_MESSAGE } from './eligibility-lists';
 import {
   cyclePercent,
   normalizeFieldName,
@@ -169,6 +170,14 @@ export async function evaluateEligibility(
     const writtenOff = await client.loan.count({ where: { borrowerId: borrower.id, status: 'WRITTEN_OFF' } });
     if (writtenOff > 0) {
       return refuse(product, 'A previous loan of yours was not repaid, so new loans are not available. Please contact support.');
+    }
+  }
+  // Ahead of the loan-count checks: someone the product is not offered to
+  // should hear that, not advice about repaying their other loans first.
+  if (product.eligibilityListId) {
+    const numbers = await borrowerPhoneNumbers(client, borrower);
+    if (!(await isOnEligibilityList(client, product.eligibilityListId, numbers))) {
+      return refuse(product, NOT_ON_LIST_MESSAGE);
     }
   }
 

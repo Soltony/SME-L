@@ -4,6 +4,8 @@ export type PenaltyRow = { fromDay: string; toDay: string; type: string; value: 
 export type DocRow = { key: string; name: string; description?: string };
 export type FilterRow = { field: string; values: string };
 export type StepRow = { minCount: string; percent: string };
+/** A saved customer list the product can be restricted to. */
+export type ListOption = { id: string; providerId: string; name: string; entryCount: number };
 
 export interface ProductFormValues {
   providerId: string;
@@ -26,6 +28,8 @@ export interface ProductFormValues {
   requiresScoring: boolean;
   requiredDocuments: DocRow[];
   eligibilityFilter: FilterRow[];
+  /** Empty when anyone may apply. */
+  eligibilityListId: string;
   cycleEnabled: boolean;
   cycleMetric: string;
   cycleSteps: StepRow[];
@@ -53,6 +57,7 @@ export function blankProduct(providerId: string): ProductFormValues {
     requiresScoring: true,
     requiredDocuments: [],
     eligibilityFilter: [],
+    eligibilityListId: '',
     cycleEnabled: false,
     cycleMetric: 'PAID_OFF_LOANS',
     cycleSteps: [

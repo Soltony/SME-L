@@ -28,8 +28,15 @@ function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-/** A field value as the checker should see it. An icon is shown, not dumped as base64. */
-function FieldValue({ field, value }: { field: string; value: unknown }) {
+/**
+ * A field value as the checker should see it. An icon is shown, not dumped as
+ * base64; a customer list by its name and size, not its id.
+ */
+function FieldValue({ field, value, lists }: { field: string; value: unknown; lists: Map<string, string> }) {
+  if (field === 'eligibilityListId') {
+    const text = typeof value === 'string' && value ? `Only customers on ${lists.get(value) ?? 'a deleted list'}` : 'Any borrower who qualifies';
+    return <pre className="whitespace-pre-wrap break-words font-sans text-xs">{text}</pre>;
+  }
   if (field === 'icon' && typeof value === 'string' && value) {
     return (
       <span className="flex items-center gap-2 text-xs">
@@ -59,6 +66,22 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
     }),
     prisma.pendingChange.count({ where }),
   ]);
+
+  const listIds = new Set<string>();
+  for (const change of changes) {
+    for (const raw of [change.payload, change.previousData]) {
+      const id = raw ? (JSON.parse(raw) as Record<string, unknown>).eligibilityListId : null;
+      if (typeof id === 'string' && id) listIds.add(id);
+    }
+  }
+  const lists = new Map(
+    (
+      await prisma.eligibilityList.findMany({
+        where: { id: { in: [...listIds] } },
+        select: { id: true, name: true, _count: { select: { entries: true } } },
+      })
+    ).map((l) => [l.id, `${l.name} (${l._count.entries.toLocaleString('en-US')} customers)`])
+  );
 
   return (
     <>
@@ -130,11 +153,11 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
                           <td className="px-3 py-2 font-medium">{key}</td>
                           {previous && (
                             <td className="px-3 py-2 text-muted-foreground">
-                              <FieldValue field={key} value={previous[key]} />
+                              <FieldValue field={key} value={previous[key]} lists={lists} />
                             </td>
                           )}
                           <td className="px-3 py-2">
-                            <FieldValue field={key} value={payload[key]} />
+                            <FieldValue field={key} value={payload[key]} lists={lists} />
                           </td>
                         </tr>
                       ))}

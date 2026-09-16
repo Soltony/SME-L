@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,8 +12,9 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { postJson } from './action-dialog';
+import { NewEligibilityList } from './eligibility-lists';
 
-import type { DocRow, FilterRow, PenaltyRow, ProductFormValues, StepRow } from './product-form-values';
+import type { DocRow, FilterRow, ListOption, PenaltyRow, ProductFormValues, StepRow } from './product-form-values';
 
 export type { ProductFormValues };
 
@@ -52,6 +54,7 @@ function toPayload(v: ProductFormValues) {
     eligibilityFilter: v.eligibilityFilter.length
       ? Object.fromEntries(v.eligibilityFilter.filter((f) => f.field.trim()).map((f) => [f.field.trim(), f.values]))
       : null,
+    eligibilityListId: v.eligibilityListId || null,
     cycleConfig: v.cycleEnabled ? { enabled: true, metric: v.cycleMetric, steps: v.cycleSteps } : null,
   };
 }
@@ -60,16 +63,29 @@ export function ProductForm({
   productId,
   initial,
   providers,
+  lists,
+  canCreateList,
   canSubmit,
 }: {
   productId?: string;
   initial: ProductFormValues;
   providers: { id: string; name: string }[];
+  /** Saved customer lists for every provider offered above. */
+  lists: ListOption[];
+  canCreateList: boolean;
   canSubmit: boolean;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [v, setV] = useState<ProductFormValues>(initial);
+  // Lists uploaded from this form, kept until the refreshed page brings them in
+  // as props, so the new list can be selected the moment it is saved.
+  const [uploaded, setUploaded] = useState<ListOption[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const providerLists = [...lists, ...uploaded.filter((u) => !lists.some((l) => l.id === u.id))].filter(
+    (l) => l.providerId === v.providerId
+  );
+  const selectedList = providerLists.find((l) => l.id === v.eligibilityListId);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,7 +129,13 @@ export function ProductForm({
         <section className="panel grid gap-4 p-4 md:grid-cols-2">
           <h2 className="font-semibold md:col-span-2">Product</h2>
           <Field error={err('providerId')} label="Provider">
-            <select value={v.providerId} onChange={(e) => set('providerId', e.target.value)} disabled={Boolean(productId)} className={SELECT}>
+            <select
+              value={v.providerId}
+              // Lists belong to a provider, so a list chosen for another one no longer applies.
+              onChange={(e) => setV((s) => ({ ...s, providerId: e.target.value, eligibilityListId: '' }))}
+              disabled={Boolean(productId)}
+              className={SELECT}
+            >
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -289,13 +311,61 @@ export function ProductForm({
         </section>
 
         <section className="panel p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">Eligibility filter</h2>
+          <h2 className="font-semibold">Eligibility</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Restrict the product to a list of customers you upload. Nobody else can see or take it. A saved list can be reused on any product —{' '}
+            <Link href="/admin/products/eligibility-lists" className="text-primary hover:underline">
+              manage customer lists
+            </Link>
+            .
+          </p>
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+            <Field error={err('eligibilityListId')} label="Who can take this loan">
+              <select value={v.eligibilityListId} onChange={(e) => set('eligibilityListId', e.target.value)} className={cn(SELECT, cls('eligibilityListId'))}>
+                <option value="">Any borrower who qualifies</option>
+                {providerLists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    Only customers on {list.name} ({list.entryCount.toLocaleString('en-US')})
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {canCreateList && canSubmit && !uploading && (
+              <div className="flex items-end">
+                <Button type="button" variant="outline" onClick={() => setUploading(true)}>
+                  <Upload className="mr-1.5 h-4 w-4" /> Upload new list
+                </Button>
+              </div>
+            )}
+          </div>
+          {selectedList && (
+            <p className="mt-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+              Only the {selectedList.entryCount.toLocaleString('en-US')} customers on <strong>{selectedList.name}</strong> can apply. Updating that list changes who can apply straight away.
+            </p>
+          )}
+          {uploading && (
+            <div className="mt-3">
+              <NewEligibilityList
+                providerId={v.providerId}
+                onCancel={() => setUploading(false)}
+                onCreated={(list) => {
+                  setUploaded((u) => [...u, { ...list, providerId: v.providerId }]);
+                  set('eligibilityListId', list.id);
+                  setUploading(false);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="mb-2 mt-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Data conditions</h3>
+              <p className="text-xs text-muted-foreground">Optional. Borrowers must also match one of the listed values in their uploaded data (e.g. Sector: Retail, Food).</p>
+            </div>
             <Button type="button" size="sm" variant="outline" onClick={() => set('eligibilityFilter', [...v.eligibilityFilter, { field: '', values: '' }])}>
               <Plus className="mr-1 h-3.5 w-3.5" /> Add condition
             </Button>
           </div>
-          <p className="mb-3 text-xs text-muted-foreground">Only borrowers whose uploaded data matches one of the listed values may apply (e.g. Sector: Retail, Food).</p>
           <div className="space-y-2">
             {v.eligibilityFilter.map((row, i) => (
               <div key={i} className="grid gap-2 md:grid-cols-[200px_1fr_40px]">

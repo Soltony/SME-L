@@ -176,6 +176,7 @@ model LoanProvider {
   scoringParameters ScoringParameter[]
   dataConfigs       DataProvisioningConfig[]
   terms             TermsVersion[]
+  eligibilityLists  EligibilityList[]
 }
 
 model LoanProduct {
@@ -209,6 +210,9 @@ model LoanProduct {
   requiresScoring   Boolean  @default(true)
   /// JSON object { field: "a,b,c" } matched against provisioned data.
   eligibilityFilter String?  @db.NVarChar(Max)
+  /// When set, only borrowers whose phone number is on this list may borrow.
+  eligibilityListId String?
+  eligibilityList   EligibilityList? @relation(fields: [eligibilityListId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   /// JSON LoanCycleConfig.
   cycleConfig       String?  @db.NVarChar(Max)
   createdAt         DateTime @default(now())
@@ -220,6 +224,49 @@ model LoanProduct {
 
   @@unique([providerId, code])
   @@unique([providerId, name])
+  @@index([eligibilityListId])
+}
+
+/// A saved list of eligible customers, uploaded once from a spreadsheet and
+/// attached to as many of the provider's products as need it.
+///
+/// Products point at the list rather than copying it, so adding a customer to
+/// the list opens every product using it to them at once. Uploads are
+/// audit-logged, like scoring data, rather than queued for approval.
+model EligibilityList {
+  id           String       @id @default(cuid())
+  providerId   String
+  provider     LoanProvider @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name         String
+  description  String?      @db.NVarChar(300)
+  /// File the current contents came from, for "which spreadsheet is this?".
+  fileName     String?
+  createdById  String
+  createdBy    String?
+  updatedById  String?
+  updatedBy    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  entries  EligibilityListEntry[]
+  products LoanProduct[]
+
+  @@unique([providerId, name])
+}
+
+/// One eligible customer. Keyed by phone number, not borrower, so a list can be
+/// uploaded before the people on it have ever opened the app.
+model EligibilityListEntry {
+  id          String          @id @default(cuid())
+  listId      String
+  list        EligibilityList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  /// Normalized 251XXXXXXXXX, the form borrower phone numbers are stored in.
+  phoneNumber String
+  fullName    String?
+  createdAt   DateTime        @default(now())
+
+  @@unique([listId, phoneNumber])
+  @@index([phoneNumber])
 }
 
 model LoanAmountTier {

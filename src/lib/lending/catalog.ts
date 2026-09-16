@@ -66,6 +66,13 @@ export const productSchema = productPricingSchema.and(
       .record(z.string().trim().min(1).max(100), z.string().trim().min(1).max(500))
       .nullable()
       .default(null),
+    /** Saved customer list; when set, only borrowers on it may apply. */
+    eligibilityListId: z
+      .string()
+      .trim()
+      .max(40)
+      .nullish()
+      .transform((v) => v || null),
     cycleConfig: loanCycleSchema.nullable().default(null),
   })
 );
@@ -154,6 +161,7 @@ export function productFormValues(p: LoanProduct) {
     requiresScoring: p.requiresScoring,
     requiredDocuments,
     eligibilityFilter,
+    eligibilityListId: p.eligibilityListId,
     cycleConfig: parseLoanCycle(p.cycleConfig),
   };
 }

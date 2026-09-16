@@ -5,6 +5,8 @@ import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
 import { productCard } from '@/lib/lending/product-view';
 import { buildLoanView } from '@/lib/lending/loan-view';
+import { borrowerPhoneNumbers } from '@/lib/lending/borrower-identity';
+import { visibleToBorrower } from '@/lib/lending/eligibility-lists';
 import { money } from '@/components/money';
 import { ProviderIcon } from '@/components/provider-icon';
 
@@ -13,10 +15,11 @@ export const metadata = { title: 'Home' };
 
 export default async function BorrowerHome() {
   const { borrower } = await requireBorrowerPage();
+  const numbers = await borrowerPhoneNumbers(prisma, borrower);
   const [settings, products, loans, pending] = await Promise.all([
     getSettings(),
     prisma.loanProduct.findMany({
-      where: { status: 'ACTIVE', provider: { status: 'ACTIVE' } },
+      where: { status: 'ACTIVE', provider: { status: 'ACTIVE' }, ...visibleToBorrower(numbers) },
       include: { provider: { select: { name: true, colorHex: true, icon: true, displayOrder: true } } },
       orderBy: [{ provider: { displayOrder: 'asc' } }, { name: 'asc' }],
     }),

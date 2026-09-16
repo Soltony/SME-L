@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { ListChecks, Plus } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
@@ -30,13 +30,20 @@ export default async function ProductsPage() {
         title="Products"
         description="Loan products and their pricing. Every change is approved by a second person and applies to new loans only."
         actions={
-          hasPermission(user, 'products', 'create') ? (
-            <Button asChild size="sm">
-              <Link href="/admin/products/new">
-                <Plus className="mr-1.5 h-4 w-4" /> New product
+          <>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/admin/products/eligibility-lists">
+                <ListChecks className="mr-1.5 h-4 w-4" /> Customer lists
               </Link>
             </Button>
-          ) : null
+            {hasPermission(user, 'products', 'create') && (
+              <Button asChild size="sm">
+                <Link href="/admin/products/new">
+                  <Plus className="mr-1.5 h-4 w-4" /> New product
+                </Link>
+              </Button>
+            )}
+          </>
         }
       />
       <TableCard>
@@ -83,6 +90,7 @@ export default async function ProductsPage() {
                   <td className="px-4 py-2.5 text-xs">
                     {product.requiresReview ? 'Reviewed' : 'Instant'}
                     {product.requiresScoring ? ` · scored (${product._count.tiers} tiers)` : ''}
+                    {product.eligibilityListId ? ' · listed customers only' : ''}
                   </td>
                   <td className="num px-4 py-2.5 text-right">{product._count.loans}</td>
                   <td className="px-4 py-2.5">

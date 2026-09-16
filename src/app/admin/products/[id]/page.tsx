@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { productFormValues } from '@/lib/lending/catalog';
+import { listSummaries } from '@/lib/lending/eligibility-lists';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProductForm } from '@/components/admin/product-form';
@@ -50,11 +51,13 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     requiresScoring: values.requiresScoring,
     requiredDocuments: values.requiredDocuments,
     eligibilityFilter: Object.entries(values.eligibilityFilter ?? {}).map(([field, v]) => ({ field, values: v })),
+    eligibilityListId: values.eligibilityListId ?? '',
     cycleEnabled: Boolean(values.cycleConfig),
     cycleMetric: values.cycleConfig?.metric ?? 'PAID_OFF_LOANS',
     cycleSteps: (values.cycleConfig?.steps ?? [{ minCount: 0, percent: 50 }]).map((s) => ({ minCount: String(s.minCount), percent: String(s.percent) })),
   };
   const canUpdate = hasPermission(user, 'products', 'update');
+  const lists = await listSummaries({ providerId: product.providerId });
 
   return (
     <>
@@ -86,7 +89,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <ProductForm productId={product.id} initial={initial} providers={[product.provider]} canSubmit={canUpdate} />
+        <ProductForm
+          productId={product.id}
+          initial={initial}
+          providers={[product.provider]}
+          lists={lists}
+          canCreateList={hasPermission(user, 'products', 'create')}
+          canSubmit={canUpdate}
+        />
         <div className="space-y-4">
           <section className="panel p-4">
             <h2 className="mb-1 font-semibold">Calculator</h2>

@@ -75,6 +75,17 @@ function handler<T>(h: Handler<T>): Handler<T> {
   return h;
 }
 
+/** The product's provider, once its customer list is confirmed to belong to that provider. */
+async function providerOfProduct(tx: TxClient, p: z.infer<typeof productSchema>) {
+  if (p.eligibilityListId) {
+    const list = await tx.eligibilityList.findUnique({ where: { id: p.eligibilityListId }, select: { providerId: true } });
+    if (!list || list.providerId !== p.providerId) {
+      throw new ApiError(400, "Choose one of this provider's customer lists.", 'eligibilityListId');
+    }
+  }
+  return p.providerId;
+}
+
 async function providerOfLoan(tx: TxClient, loanId: string) {
   const loan = await tx.loan.findUnique({ where: { id: loanId }, select: { providerId: true } });
   if (!loan) throw new ApiError(404, 'Loan not found.');
@@ -115,8 +126,10 @@ export const CHANGE_HANDLERS = {
     label: 'Create product',
     module: 'products',
     schema: productSchema,
-    providerOf: async (_tx, p) => p.providerId,
+    providerOf: providerOfProduct,
     apply: async (tx, p) => {
+      // Checked again: the list may have been deleted while this waited.
+      await providerOfProduct(tx, p);
       const created = await tx.loanProduct.create({ data: { ...productColumns(p), providerId: p.providerId, status: 'DRAFT' } });
       return created.id;
     },
@@ -126,9 +139,10 @@ export const CHANGE_HANDLERS = {
     label: 'Update product',
     module: 'products',
     schema: productSchema,
-    providerOf: async (_tx, p) => p.providerId,
+    providerOf: providerOfProduct,
     apply: async (tx, p, id) => {
       if (!id) throw new ApiError(400, 'Missing product.');
+      await providerOfProduct(tx, p);
       const existing = await tx.loanProduct.findUnique({ where: { id }, select: { providerId: true } });
       if (!existing || existing.providerId !== p.providerId) throw new ApiError(404, 'Product not found.');
       // Loans already issued keep their own terms snapshot; this only prices new loans.
@@ -464,6 +478,7 @@ function productColumns(p: z.infer<typeof productSchema>) {
     requiresScoring: p.requiresScoring,
     requiredDocuments: JSON.stringify(p.requiredDocuments),
     eligibilityFilter: p.eligibilityFilter ? JSON.stringify(p.eligibilityFilter) : null,
+    eligibilityListId: p.eligibilityListId,
     cycleConfig: p.cycleConfig ? JSON.stringify(p.cycleConfig) : null,
   };
 }

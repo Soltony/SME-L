@@ -6,6 +6,8 @@ import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
 import { productCard } from '@/lib/lending/product-view';
 import { parsePenaltyRules } from '@/lib/lending/terms';
+import { borrowerPhoneNumbers } from '@/lib/lending/borrower-identity';
+import { visibleToBorrower } from '@/lib/lending/eligibility-lists';
 import { ProviderIcon } from '@/components/provider-icon';
 import { ApplyFlow } from './apply-flow';
 
@@ -22,10 +24,12 @@ function describePenalty(rule: ReturnType<typeof parsePenaltyRules>[number]) {
 }
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireBorrowerPage();
+  const { borrower } = await requireBorrowerPage();
   const { id } = await params;
-  const product = await prisma.loanProduct.findUnique({
-    where: { id },
+  const numbers = await borrowerPhoneNumbers(prisma, borrower);
+  // A list-only product is not found at all by someone who is not on the list.
+  const product = await prisma.loanProduct.findFirst({
+    where: { id, ...visibleToBorrower(numbers) },
     include: { provider: { select: { name: true, colorHex: true, icon: true, status: true } } },
   });
   if (!product || product.status !== 'ACTIVE' || product.provider.status !== 'ACTIVE') notFound();
