@@ -5,7 +5,8 @@ import type { DocumentKind } from '@/lib/document-kinds';
 export type PenaltyRow = { fromDay: string; toDay: string; type: string; value: string; frequency: string };
 export type DocRow = { key: string; name: string; description?: string; type: DocumentKind };
 export type FilterRow = { field: string; values: string };
-export type StepRow = { minCount: string; percent: string };
+/** One score grade of the loan cycle table: a percentage per cycle, as typed. */
+export type GradeRow = { label: string; minScore: string; percents: string[] };
 /** A saved customer list the product can be restricted to. */
 export type ListOption = { id: string; providerId: string; name: string; entryCount: number };
 
@@ -34,7 +35,10 @@ export interface ProductFormValues {
   eligibilityListId: string;
   cycleEnabled: boolean;
   cycleMetric: string;
-  cycleSteps: StepRow[];
+  cycleLateSetsBack: boolean;
+  /** Loan count each cycle starts at, as typed. */
+  cycleStarts: string[];
+  cycleGrades: GradeRow[];
 }
 
 export function blankProduct(providerId: string): ProductFormValues {
@@ -61,11 +65,10 @@ export function blankProduct(providerId: string): ProductFormValues {
     eligibilityFilter: [],
     eligibilityListId: '',
     cycleEnabled: false,
-    cycleMetric: 'PAID_OFF_LOANS',
-    cycleSteps: [
-      { minCount: '0', percent: '50' },
-      { minCount: '2', percent: '100' },
-    ],
+    cycleMetric: 'ON_TIME_LOANS',
+    cycleLateSetsBack: false,
+    cycleStarts: ['0', '1', '3'],
+    cycleGrades: [{ label: 'A', minScore: '0', percents: ['50', '75', '100'] }],
   };
 }
 

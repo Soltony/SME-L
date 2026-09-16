@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
 import { DOCUMENT_KIND_KEYS, DOCUMENT_KINDS, type DocumentKind } from '@/lib/document-kinds';
 import { postJson } from './action-dialog';
 import { NewEligibilityList } from './eligibility-lists';
-
-import type { DocRow, FilterRow, ListOption, PenaltyRow, ProductFormValues, StepRow } from './product-form-values';
+import { LoanCycleEditor } from './loan-cycle-editor';
+import type { DocRow, FilterRow, ListOption, PenaltyRow, ProductFormValues } from './product-form-values';
 
 export type { ProductFormValues };
 
@@ -56,7 +56,20 @@ function toPayload(v: ProductFormValues) {
       ? Object.fromEntries(v.eligibilityFilter.filter((f) => f.field.trim()).map((f) => [f.field.trim(), f.values]))
       : null,
     eligibilityListId: v.eligibilityListId || null,
-    cycleConfig: v.cycleEnabled ? { enabled: true, metric: v.cycleMetric, steps: v.cycleSteps } : null,
+    cycleConfig: v.cycleEnabled
+      ? {
+          enabled: true,
+          metric: v.cycleMetric,
+          lateSetsBack: v.cycleLateSetsBack,
+          cycles: v.cycleStarts,
+          grades: v.cycleGrades.map((g) => ({
+            label: g.label,
+            // Without scoring the score column is hidden, and a lone grade covers everyone.
+            minScore: !v.requiresScoring && v.cycleGrades.length === 1 ? '0' : g.minScore,
+            percents: g.percents,
+          })),
+        }
+      : null,
   };
 }
 
@@ -405,34 +418,17 @@ export function ProductForm({
             Loan cycles
           </label>
           <p className="mt-1 text-xs text-muted-foreground">
-            New borrowers get a share of their tier amount, rising as they repay loans. The step with the highest loan count the borrower has reached applies.
+            Borrowers start with a share of their tier amount that grows as they repay loans. Better-scoring borrowers can be given a bigger share from the start.
           </p>
           {v.cycleEnabled && (
-            <div className="mt-3 space-y-2">
-              <select value={v.cycleMetric} onChange={(e) => set('cycleMetric', e.target.value)} className={cn(SELECT, 'md:w-80')}>
-                <option value="PAID_OFF_LOANS">Count loans repaid in full</option>
-                <option value="ON_TIME_LOANS">Count loans repaid on time</option>
-              </select>
-              {v.cycleSteps.map((step, i) => (
-                <div key={i} className="grid gap-2 md:grid-cols-[180px_180px_40px]">
-                  <Input aria-label="Loans repaid" value={step.minCount} onChange={(e) => set('cycleSteps', v.cycleSteps.map((s, j) => (j === i ? { ...s, minCount: e.target.value } : s)))} placeholder="Loans repaid" />
-                  <Input aria-label="Percent of tier" value={step.percent} onChange={(e) => set('cycleSteps', v.cycleSteps.map((s, j) => (j === i ? { ...s, percent: e.target.value } : s)))} placeholder="% of tier" />
-                  <Button type="button" variant="ghost" size="icon" aria-label="Remove step" onClick={() => set('cycleSteps', v.cycleSteps.filter((_, j) => j !== i))}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              {Object.entries(errors)
+            <LoanCycleEditor
+              values={v}
+              onChange={(patch) => setV((s) => ({ ...s, ...patch }))}
+              usesScoring={v.requiresScoring}
+              errors={Object.entries(errors)
                 .filter(([k]) => k.startsWith('cycleConfig'))
-                .map(([k, m]) => (
-                  <p key={k} className="text-xs text-destructive">
-                    {m}
-                  </p>
-                ))}
-              <Button type="button" size="sm" variant="outline" onClick={() => set('cycleSteps', [...v.cycleSteps, { minCount: '', percent: '' }])}>
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add step
-              </Button>
-            </div>
+                .map(([, m]) => m)}
+            />
           )}
         </section>
       </fieldset>

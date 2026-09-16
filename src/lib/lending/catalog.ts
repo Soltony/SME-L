@@ -77,6 +77,15 @@ export const productSchema = productPricingSchema.and(
       .nullish()
       .transform((v) => v || null),
     cycleConfig: loanCycleSchema.nullable().default(null),
+  }).superRefine((product, ctx) => {
+    // Grades split borrowers by score; without scoring every borrower would sit in the lowest.
+    if (product.cycleConfig && !product.requiresScoring && product.cycleConfig.grades.length > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cycleConfig', 'grades'],
+        message: 'Grades need credit scoring. Turn on "Use the provider\'s credit score", or keep a single grade.',
+      });
+    }
   })
 );
 

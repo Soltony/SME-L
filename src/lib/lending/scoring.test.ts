@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cyclePercent,
   evaluateRule,
   loanCycleSchema,
   normalizeFieldName,
@@ -74,13 +73,6 @@ describe('model validation', () => {
     expect(tiersSchema.safeParse([{ minScore: 0, maxScore: 49, maxAmount: '1000' }, { minScore: 50, maxScore: 100, maxAmount: '5000' }]).success).toBe(true);
   });
 
-  it('requires a loan cycle step for first-time borrowers', () => {
-    expect(loanCycleSchema.safeParse({ enabled: true, metric: 'PAID_OFF_LOANS', steps: [{ minCount: 1, percent: 50 }] }).success).toBe(false);
-    const cycle = loanCycleSchema.parse({ enabled: true, metric: 'PAID_OFF_LOANS', steps: [{ minCount: 0, percent: 50 }, { minCount: 3, percent: 100 }] });
-    expect(cyclePercent(cycle, 0)).toBe(50);
-    expect(cyclePercent(cycle, 2)).toBe(50);
-    expect(cyclePercent(cycle, 7)).toBe(100);
-  });
 });
 
 describe('boolish', () => {

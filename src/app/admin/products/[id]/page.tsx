@@ -7,7 +7,7 @@ import { listSummaries } from '@/lib/lending/eligibility-lists';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProductForm } from '@/components/admin/product-form';
-import type { ProductFormValues } from '@/components/admin/product-form-values';
+import { blankProduct, type ProductFormValues } from '@/components/admin/product-form-values';
 import { LoanCalculator, TierEditor } from '@/components/admin/product-tools';
 import { ConfirmButton } from '@/components/admin/action-dialog';
 
@@ -24,6 +24,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   if (!product || (user.providerId && product.providerId !== user.providerId)) notFound();
 
   const values = productFormValues(product);
+  // Defaults for the cycle table when the product has none yet.
+  const blank = blankProduct(product.providerId);
   const initial: ProductFormValues = {
     providerId: values.providerId,
     code: values.code,
@@ -53,8 +55,19 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     eligibilityFilter: Object.entries(values.eligibilityFilter ?? {}).map(([field, v]) => ({ field, values: v })),
     eligibilityListId: values.eligibilityListId ?? '',
     cycleEnabled: Boolean(values.cycleConfig),
-    cycleMetric: values.cycleConfig?.metric ?? 'PAID_OFF_LOANS',
-    cycleSteps: (values.cycleConfig?.steps ?? [{ minCount: 0, percent: 50 }]).map((s) => ({ minCount: String(s.minCount), percent: String(s.percent) })),
+    ...(values.cycleConfig
+      ? {
+          cycleMetric: values.cycleConfig.metric,
+          cycleLateSetsBack: values.cycleConfig.lateSetsBack,
+          cycleStarts: values.cycleConfig.cycles.map(String),
+          cycleGrades: values.cycleConfig.grades.map((g) => ({ label: g.label, minScore: String(g.minScore), percents: g.percents.map(String) })),
+        }
+      : {
+          cycleMetric: blank.cycleMetric,
+          cycleLateSetsBack: blank.cycleLateSetsBack,
+          cycleStarts: blank.cycleStarts,
+          cycleGrades: blank.cycleGrades,
+        }),
   };
   const canUpdate = hasPermission(user, 'products', 'update');
   const lists = await listSummaries({ providerId: product.providerId });

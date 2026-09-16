@@ -7,7 +7,8 @@ import { OPEN_LOAN_STATUSES } from '@/lib/types';
 import { borrowerPhoneNumbers } from './borrower-identity';
 import { isOnEligibilityList, NOT_ON_LIST_MESSAGE } from './eligibility-lists';
 import {
-  cyclePercent,
+  loanCyclePosition,
+  loanCycleUnreadable,
   normalizeFieldName,
   parseLoanCycle,
   scoreBorrower,
@@ -21,6 +22,7 @@ export interface BorrowerFeatures {
     disbursedLoans: number;
     paidOffLoans: number;
     onTimeLoans: number;
+    earlyLoans: number;
     lateLoans: number;
     writtenOffLoans: number;
     openLoans: number;
@@ -67,6 +69,7 @@ export async function getBorrowerFeatures(
     disbursedLoans: disbursed.length,
     paidOffLoans: loans.filter((l) => l.status === 'PAID_OFF').length,
     onTimeLoans: loans.filter((l) => l.status === 'PAID_OFF' && l.repaymentBehavior !== 'LATE').length,
+    earlyLoans: loans.filter((l) => l.status === 'PAID_OFF' && l.repaymentBehavior === 'EARLY').length,
     lateLoans: loans.filter((l) => l.repaymentBehavior === 'LATE').length,
     writtenOffLoans: loans.filter((l) => l.status === 'WRITTEN_OFF').length,
     openLoans: loans.filter((l) => (OPEN_LOAN_STATUSES as string[]).includes(l.status)).length,
@@ -82,6 +85,7 @@ export const HISTORY_FIELDS = [
   'disbursedLoans',
   'paidOffLoans',
   'onTimeLoans',
+  'earlyLoans',
   'lateLoans',
   'writtenOffLoans',
   'openLoans',
@@ -100,6 +104,8 @@ export interface EligibilityResult {
     productMax: Cents;
     tierMax: Cents | null;
     cyclePercent: number | null;
+    /** Where the borrower sits in the loan cycle table, for reviewers. */
+    cycleStage: string | null;
     outstandingWithProvider: Cents;
   };
 }
@@ -119,6 +125,7 @@ function refuse(product: ProductWithProvider | null, reason: string, extra: Part
       productMax: product ? toCents(product.maxAmount) : 0,
       tierMax: null,
       cyclePercent: null,
+      cycleStage: null,
       outstandingWithProvider: 0,
     },
     ...extra,
@@ -284,17 +291,30 @@ export async function evaluateEligibility(
         score,
         maxScore,
         breakdown,
-        limits: { productMax, tierMax: 0, cyclePercent: null, outstandingWithProvider: 0 },
+        limits: { productMax, tierMax: 0, cyclePercent: null, cycleStage: null, outstandingWithProvider: 0 },
       });
     }
     cap = Math.min(cap, tierMax);
   }
 
   let percent: number | null = null;
+  let cycleStage: string | null = null;
+  if (loanCycleUnreadable(product.cycleConfig)) {
+    return refuse(product, 'This loan product is not available right now.');
+  }
   const cycle = parseLoanCycle(product.cycleConfig);
   if (cycle) {
-    const count = cycle.metric === 'ON_TIME_LOANS' ? features.history.onTimeLoans : features.history.paidOffLoans;
-    percent = cyclePercent(cycle, count);
+    const position = loanCyclePosition(cycle, features.history, score);
+    percent = position.percent;
+    cycleStage = position.description;
+    if (percent === 0) {
+      return refuse(product, 'This loan opens up as you repay loans with this lender. Repay on time to unlock it.', {
+        score,
+        maxScore,
+        breakdown,
+        limits: { productMax, tierMax, cyclePercent: 0, cycleStage, outstandingWithProvider: 0 },
+      });
+    }
     cap = Math.floor((cap * percent) / 100);
   }
 
@@ -311,7 +331,7 @@ export async function evaluateEligibility(
 
   // Whole currency units: nobody is offered a loan of 4,999.37.
   const available = Math.floor(Math.max(0, Math.min(cap, productMax) - outstandingWithProvider) / 100) * 100;
-  const limits = { productMax, tierMax, cyclePercent: percent, outstandingWithProvider };
+  const limits = { productMax, tierMax, cyclePercent: percent, cycleStage, outstandingWithProvider };
 
   if (available < productMin) {
     return refuse(

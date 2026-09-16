@@ -258,7 +258,10 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Loan cycle share</dt>
-                <dd>{now.limits.cyclePercent === null ? '—' : `${now.limits.cyclePercent}%`}</dd>
+                <dd className="text-right">
+                  {now.limits.cyclePercent === null ? '—' : `${now.limits.cyclePercent}%`}
+                  {now.limits.cycleStage && <span className="block text-xs text-muted-foreground">{now.limits.cycleStage}</span>}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Already owed to this provider</dt>
