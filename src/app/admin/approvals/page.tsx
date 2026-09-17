@@ -1,15 +1,15 @@
 import Link from 'next/link';
+import { ChevronRight } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
-import { canDecide, CHANGE_HANDLERS } from '@/lib/approvals';
-import { formatDateTime } from '@/lib/format';
+import { canDecide } from '@/lib/approvals';
+import { summarizeChange } from '@/lib/approval-view';
+import { formatDateTime, timeAgo } from '@/lib/format';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
-import { Pager } from '@/components/admin/data-shell';
-import { ChangeDecision } from '@/components/admin/change-decision';
+import { EmptyRow, Pager, TableCard } from '@/components/admin/data-shell';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { isUploadedIcon } from '@/lib/provider-icon';
-import { ProviderIcon } from '@/components/provider-icon';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Approvals' };
@@ -21,73 +21,36 @@ const TABS = [
   { key: 'CANCELLED', label: 'Withdrawn' },
 ];
 
-function pretty(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'string') return value || '—';
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value, null, 2);
-}
-
-/**
- * A field value as the checker should see it. An icon is shown, not dumped as
- * base64; a customer list by its name and size, not its id.
- */
-function FieldValue({ field, value, lists }: { field: string; value: unknown; lists: Map<string, string> }) {
-  if (field === 'eligibilityListId') {
-    const text = typeof value === 'string' && value ? `Only customers on ${lists.get(value) ?? 'a deleted list'}` : 'Any borrower who qualifies';
-    return <pre className="whitespace-pre-wrap break-words font-sans text-xs">{text}</pre>;
-  }
-  if (field === 'icon' && typeof value === 'string' && value) {
-    return (
-      <span className="flex items-center gap-2 text-xs">
-        <ProviderIcon icon={value} className="h-6 w-6" />
-        {isUploadedIcon(value) ? `Uploaded image (${Math.ceil((value.length * 3) / 4 / 1024)} KB)` : value}
-      </span>
-    );
-  }
-  return <pre className="whitespace-pre-wrap break-words font-sans text-xs">{pretty(value)}</pre>;
-}
-
 export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
   const user = (await getCurrentUser({ allowRefresh: false }))!;
   const params = await searchParams;
   const status = TABS.some((t) => t.key === params.status) ? params.status! : 'PENDING';
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = 20;
-  const where = { status, ...(user.providerId ? { providerId: user.providerId } : {}) };
+  const scope = user.providerId ? { providerId: user.providerId } : {};
+  const where = { status, ...scope };
 
-  const [changes, total] = await Promise.all([
+  const [changes, total, counts] = await Promise.all([
     prisma.pendingChange.findMany({
       where,
       include: { createdBy: { select: { fullName: true } }, decidedBy: { select: { fullName: true } } },
+      // Oldest first while waiting, so nothing sits at the bottom of the queue.
       orderBy: { createdAt: status === 'PENDING' ? 'asc' : 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
     prisma.pendingChange.count({ where }),
+    prisma.pendingChange.groupBy({ by: ['status'], where: scope, _count: true }),
   ]);
-
-  const listIds = new Set<string>();
-  for (const change of changes) {
-    for (const raw of [change.payload, change.previousData]) {
-      const id = raw ? (JSON.parse(raw) as Record<string, unknown>).eligibilityListId : null;
-      if (typeof id === 'string' && id) listIds.add(id);
-    }
-  }
-  const lists = new Map(
-    (
-      await prisma.eligibilityList.findMany({
-        where: { id: { in: [...listIds] } },
-        select: { id: true, name: true, _count: { select: { entries: true } } },
-      })
-    ).map((l) => [l.id, `${l.name} (${l._count.entries.toLocaleString('en-US')} customers)`])
-  );
+  const rows = await Promise.all(changes.map(async (change) => ({ change, summary: await summarizeChange(change) })));
+  const countOf = (key: string) => counts.find((c) => c.status === key)?._count ?? 0;
+  const pending = status === 'PENDING';
 
   return (
     <>
       <PageHeader
         title="Approvals"
-        description="Maker–checker queue. Nothing here takes effect until someone other than the requester approves it; approving applies the change immediately, in one transaction."
+        description="Maker–checker queue. Nothing takes effect until someone other than the requester reviews and approves it; approving applies the change at once, in one transaction."
       />
 
       <nav className="mb-4 flex flex-wrap gap-2">
@@ -96,85 +59,77 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: Pr
             key={tab.key}
             href={`/admin/approvals?status=${tab.key}`}
             className={cn(
-              'rounded-full border px-3 py-1 text-sm font-medium',
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium',
               tab.key === status ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary'
             )}
           >
             {tab.label}
+            <span className={cn('rounded-full px-1.5 text-xs', tab.key === status ? 'bg-primary-foreground/20' : 'bg-secondary')}>{countOf(tab.key)}</span>
           </Link>
         ))}
       </nav>
 
-      {changes.length === 0 ? (
-        <div className="panel p-10 text-center text-sm text-muted-foreground">No requests here.</div>
-      ) : (
-        <div className="space-y-3">
-          {changes.map((change) => {
-            const kind = `${change.entityType}.${change.action}`;
-            const label = (CHANGE_HANDLERS as Record<string, { label: string }>)[kind]?.label ?? kind;
-            const payload = JSON.parse(change.payload) as Record<string, unknown>;
-            const previous = change.previousData ? (JSON.parse(change.previousData) as Record<string, unknown>) : null;
-            const changed = new Set<string>(change.changedFields ? JSON.parse(change.changedFields) : Object.keys(payload));
-            const keys = Object.keys(payload).filter((k) => !previous || changed.has(k));
-            return (
-              <article key={change.id} className="panel p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                    <h2 className="mt-0.5 font-semibold">{change.summary}</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Requested by {change.createdBy.fullName} · {formatDateTime(change.createdAt)}
-                      {change.decidedBy && ` · decided by ${change.decidedBy.fullName} ${formatDateTime(change.decidedAt)}`}
-                    </p>
-                    {change.comment && <p className="mt-1 text-sm">“{change.comment}”</p>}
-                  </div>
-                  <StatusBadge status={change.status} />
-                </div>
-
-                <div className="mt-3 overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <thead className="bg-secondary/50 text-left text-xs">
-                      <tr>
-                        <th className="px-3 py-2 font-semibold">Field</th>
-                        {previous && <th className="px-3 py-2 font-semibold">Current</th>}
-                        <th className="px-3 py-2 font-semibold">{previous ? 'Proposed' : 'Value'}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {keys.length === 0 && (
-                        <tr>
-                          <td colSpan={3} className="px-3 py-2 text-muted-foreground">
-                            No field differs from the current record.
-                          </td>
-                        </tr>
-                      )}
-                      {keys.map((key) => (
-                        <tr key={key} className="align-top">
-                          <td className="px-3 py-2 font-medium">{key}</td>
-                          {previous && (
-                            <td className="px-3 py-2 text-muted-foreground">
-                              <FieldValue field={key} value={previous[key]} lists={lists} />
-                            </td>
-                          )}
-                          <td className="px-3 py-2">
-                            <FieldValue field={key} value={payload[key]} lists={lists} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {change.status === 'PENDING' && (
-                  <div className="mt-3 border-t border-border pt-3">
-                    <ChangeDecision changeId={change.id} canDecide={canDecide(user, kind)} isOwn={change.createdById === user.id} />
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      )}
+      <TableCard>
+        <table className="w-full min-w-[860px] text-sm">
+          <thead className="border-b border-border bg-secondary/50 text-left">
+            <tr>
+              <th className="px-4 py-2.5 font-semibold">Request</th>
+              <th className="px-4 py-2.5 font-semibold">Provider</th>
+              <th className="px-4 py-2.5 font-semibold">Requested by</th>
+              <th className="px-4 py-2.5 font-semibold">{pending ? 'Waiting since' : 'Decided'}</th>
+              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.length === 0 && <EmptyRow colSpan={6} message={pending ? 'Nothing is waiting for approval.' : 'No requests here.'} />}
+            {rows.map(({ change, summary }) => {
+              const own = change.createdById === user.id;
+              const actionable = pending && !own && canDecide(user, summary.kind);
+              return (
+                <tr key={change.id} className="hover:bg-secondary/30">
+                  <td className="px-4 py-2.5">
+                    <Link href={`/admin/approvals/${change.id}`} className="font-medium text-primary hover:underline">
+                      {summary.label}
+                    </Link>
+                    {summary.subject && (
+                      <p className="text-xs text-muted-foreground">
+                        {summary.subject.label} · {summary.subject.name}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">{summary.provider ?? <span className="text-muted-foreground">Platform-wide</span>}</td>
+                  <td className="px-4 py-2.5">
+                    {summary.requestedBy}
+                    {own && <span className="ml-1.5 rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">You</span>}
+                  </td>
+                  <td className="px-4 py-2.5" title={formatDateTime(pending ? summary.requestedAt : summary.decidedAt)}>
+                    {pending ? (
+                      timeAgo(summary.requestedAt)
+                    ) : (
+                      <>
+                        {summary.decidedAt ? timeAgo(summary.decidedAt) : '—'}
+                        {summary.decidedBy && <span className="block text-xs text-muted-foreground">by {summary.decidedBy}</span>}
+                      </>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusBadge status={change.status} />
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Button asChild size="sm" variant={actionable ? 'default' : 'outline'}>
+                      <Link href={`/admin/approvals/${change.id}`}>
+                        {actionable ? 'Review' : 'View'}
+                        <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </TableCard>
       <div className="panel mt-3">
         <Pager page={page} pageSize={pageSize} total={total} basePath="/admin/approvals" params={{ status }} />
       </div>

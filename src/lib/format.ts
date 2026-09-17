@@ -97,3 +97,19 @@ export function toCsv(header: string[], rows: unknown[][]): string {
     '\r\n'
   );
 }
+
+/** "3 min ago", "yesterday" — for queues where recency matters more than the exact time. */
+export function timeAgo(value: Date | string, now: Date = new Date()): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  const seconds = Math.round((now.getTime() - date.getTime()) / 1000);
+  if (Number.isNaN(seconds)) return '—';
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  return formatDateTime(date);
+}

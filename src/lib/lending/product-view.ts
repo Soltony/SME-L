@@ -28,13 +28,13 @@ export interface ProductCard {
   requiredDocuments: { key: string; name: string }[];
 }
 
-function describeFee(type: string, value: string) {
+export function describeFee(type: string, value: string) {
   if (type === 'FIXED') return `${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} one-off`;
   if (type === 'PERCENT') return `${Number(value)}% one-off`;
   return 'None';
 }
 
-function describeInterest(type: string, value: string, basis: string) {
+export function describeInterest(type: string, value: string, basis: string) {
   if (type === 'FIXED_DAILY') return `${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })} per day`;
   if (type === 'PERCENT_DAILY') return `${Number(value)}% per day${basis === 'COMPOUND' ? ', compounding' : ''}`;
   return 'None';
