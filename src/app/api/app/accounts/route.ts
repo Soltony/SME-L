@@ -1,8 +1,9 @@
+import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
-import { ApiError, handle, isBorrowerFailure, requireBorrower, tooManyRequests } from '@/lib/api';
+import { ApiError, clientMeta, handle, isBorrowerFailure, requireBorrower, tooManyRequests } from '@/lib/api';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import { CoreBankingError, fetchCustomerAccounts } from '@/lib/integrations/core-banking';
-import { createAuditLog } from '@/lib/audit-log';
+import { applyAccountLookup } from '@/lib/lending/bank-accounts';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,10 +20,11 @@ export async function GET() {
 }
 
 /**
- * Refreshes the borrower's verified accounts from core banking, looked up by
- * the phone number in their session — never by a number the client sends.
+ * Refreshes the borrower's verified accounts, and the name on them, from core
+ * banking — looked up by the phone number in their session, never by a number
+ * the client sends.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
   const ctx = await requireBorrower();
   if (isBorrowerFailure(ctx)) return ctx.response;
   const limit = consumeRateLimit('accountLookup', ctx.borrower.id);
@@ -37,32 +39,7 @@ export async function POST() {
       if (error instanceof CoreBankingError) throw new ApiError(502, 'We could not reach the bank to load your accounts. Please try again.');
       throw error;
     }
-    const numbers = result.accounts.map((a) => a.accountNumber);
-    await prisma.$transaction([
-      prisma.borrowerAccount.deleteMany({
-        where: { borrowerId: ctx.borrower.id, accountNumber: { notIn: numbers.length ? numbers : ['__none__'] } },
-      }),
-      ...result.accounts.map((a) =>
-        prisma.borrowerAccount.upsert({
-          where: { borrowerId_accountNumber: { borrowerId: ctx.borrower.id, accountNumber: a.accountNumber } },
-          create: {
-            borrowerId: ctx.borrower.id,
-            accountNumber: a.accountNumber,
-            accountName: a.accountName,
-            source: result.simulated ? 'SIMULATED' : 'CBS',
-          },
-          update: { accountName: a.accountName, verifiedAt: new Date(), source: result.simulated ? 'SIMULATED' : 'CBS' },
-        })
-      ),
-    ]);
-    await createAuditLog({
-      actorId: ctx.borrower.phoneNumber,
-      actorType: 'BORROWER',
-      action: 'BORROWER_ACCOUNTS_REFRESHED',
-      entity: 'Borrower',
-      entityId: ctx.borrower.id,
-      details: { count: numbers.length, simulated: result.simulated },
-    });
-    return { accounts: result.accounts.map((a) => ({ accountNumber: a.accountNumber, accountName: a.accountName })) };
+    const { fullName } = await applyAccountLookup(ctx.borrower, result, { reason: 'BORROWER_REFRESH', ...clientMeta(req) });
+    return { fullName, accounts: result.accounts.map((a) => ({ accountNumber: a.accountNumber, accountName: a.accountName })) };
   });
 }

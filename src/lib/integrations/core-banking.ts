@@ -33,9 +33,9 @@ function phoneForCbs(phone: string) {
   return process.env.CBS_PHONE_FORMAT === 'local' ? toLocalPhone(phone) : phone;
 }
 
-async function postJson(url: string, body: unknown) {
+async function postJson(url: string, body: unknown, timeoutMs = TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const auth = basicAuth();
     const response = await fetch(url, {
@@ -66,19 +66,29 @@ export class CoreBankingError extends Error {}
 
 export interface CbsAccount {
   accountNumber: string;
+  /** The account holder's name, as the bank records it. */
   accountName: string | null;
   status: string | null;
 }
 
-/** Accounts core banking holds for this phone number. */
-export async function fetchCustomerAccounts(phone: string): Promise<{ accounts: CbsAccount[]; simulated: boolean }> {
+/**
+ * Accounts core banking holds for this phone number, each with its holder's
+ * name. `timeoutMs` lets sign-in, which must not hang on a slow bank, give up
+ * sooner than a refresh the borrower asked for.
+ */
+export async function fetchCustomerAccounts(
+  phone: string,
+  options: { timeoutMs?: number } = {}
+): Promise<{ accounts: CbsAccount[]; simulated: boolean }> {
   if (isCbsSimulated()) {
     const tail = phone.replace(/\D/g, '').slice(-8).padStart(8, '0');
+    // A person's name, as the real service returns — it becomes the borrower's name.
+    const holder = `Test Customer ${tail.slice(-4)}`;
     return {
       simulated: true,
       accounts: [
-        { accountNumber: `1000${tail}`, accountName: 'Savings account (simulated)', status: 'ACTIVE' },
-        { accountNumber: `2000${tail}`, accountName: 'Current account (simulated)', status: 'ACTIVE' },
+        { accountNumber: `1000${tail}`, accountName: holder, status: 'ACTIVE' },
+        { accountNumber: `2000${tail}`, accountName: holder, status: 'ACTIVE' },
       ],
     };
   }
@@ -86,7 +96,7 @@ export async function fetchCustomerAccounts(phone: string): Promise<{ accounts: 
   const url = env('CBS_ACCOUNTS_URL', 'EXTERNAL_API_URL');
   if (!url) throw new CoreBankingError('The account lookup service is not configured.');
 
-  const { response, json } = await postJson(url, { phoneNumber: phoneForCbs(phone) });
+  const { response, json } = await postJson(url, { phoneNumber: phoneForCbs(phone) }, options.timeoutMs);
   if (!response.ok) {
     throw new CoreBankingError(`Account lookup failed with status ${response.status}.`);
   }

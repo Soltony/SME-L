@@ -6,6 +6,7 @@ import { PaymentError, unwrapSuperAppToken, validateSuperAppToken } from './inte
 import { ApiError } from './errors';
 import { fetchCustomerAccounts } from './integrations/core-banking';
 import { getSettings } from './settings';
+import { applyAccountLookup, type AccountLookup } from './lending/bank-accounts';
 import {
   borrowersHoldingAccounts,
   ensureCurrentPhoneRecorded,
@@ -56,10 +57,12 @@ export async function openBorrowerSession(
   const existing = await resolveBorrowerByPhone(phoneNumber);
 
   // An unknown number may still be a borrower we know. Ask core banking whose
-  // accounts it holds before treating them as new.
-  const recognised = existing ? null : await recogniseByBankAccount(phoneNumber, input);
+  // accounts it holds before treating them as new. The same answer names them.
+  // The bank being unreachable only means "not recognised": they are treated as new.
+  const lookup = existing ? null : await lookupAccountsForSignIn(phoneNumber);
+  const recognised = existing || !lookup ? null : await recogniseByBankAccount(phoneNumber, lookup, input);
 
-  const borrower = existing
+  let borrower = existing
     ? await prisma.borrower.update({ where: { id: existing.id }, data: { lastSeenAt: new Date() } })
     : recognised
       ? await prisma.borrower.update({ where: { id: recognised.id }, data: { lastSeenAt: new Date() } })
@@ -67,6 +70,18 @@ export async function openBorrowerSession(
 
   if (borrower.status === 'BLOCKED') {
     throw new ApiError(403, 'This account is blocked. Please contact support.');
+  }
+
+  // Accounts and name from core banking, so the borrower is greeted by name and
+  // can apply straight away. Never a reason to refuse the sign-in.
+  const bank = lookup ?? ((await bankDetailsAreStale(borrower)) ? await lookupAccountsForSignIn(borrower.phoneNumber) : null);
+  if (bank) {
+    try {
+      const { fullName } = await applyAccountLookup(borrower, bank, { reason: 'SIGN_IN', ipAddress: input.ipAddress, userAgent: input.userAgent });
+      borrower = { ...borrower, fullName };
+    } catch (error) {
+      console.error('[connect] could not store accounts from core banking', error);
+    }
   }
 
   await createBorrowerSession({
@@ -91,6 +106,31 @@ export async function openBorrowerSession(
   });
 
   return { borrowerId: borrower.id, isNew: !existing && !recognised, isTest: input.isTest };
+}
+
+/** Sign-in waits at most this long for the bank; the borrower can refresh their accounts later. */
+const SIGN_IN_LOOKUP_TIMEOUT_MS = 8_000;
+/** Accounts and name checked with the bank within this long are not looked up again at sign-in. */
+const BANK_DETAILS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+async function lookupAccountsForSignIn(phoneNumber: string): Promise<AccountLookup | null> {
+  try {
+    return await fetchCustomerAccounts(phoneNumber, { timeoutMs: SIGN_IN_LOOKUP_TIMEOUT_MS });
+  } catch (error) {
+    console.error('[connect] account lookup failed at sign-in', error);
+    return null;
+  }
+}
+
+/** A returning borrower with no name, no accounts, or accounts not confirmed in the last day. */
+async function bankDetailsAreStale(borrower: { id: string; fullName: string | null }) {
+  if (!borrower.fullName) return true;
+  const latest = await prisma.borrowerAccount.findFirst({
+    where: { borrowerId: borrower.id },
+    orderBy: { verifiedAt: 'desc' },
+    select: { verifiedAt: true },
+  });
+  return !latest || Date.now() - latest.verifiedAt.getTime() > BANK_DETAILS_MAX_AGE_MS;
 }
 
 /** A borrower nobody has seen before, with their first number on record. */
@@ -120,20 +160,11 @@ async function registerBorrower(phoneNumber: string, fullName: string | null) {
  */
 async function recogniseByBankAccount(
   phoneNumber: string,
+  lookup: AccountLookup,
   input: { isTest: boolean; ipAddress?: string | null; userAgent?: string | null }
 ) {
   const settings = await getSettings().catch(() => null);
   if (settings && !settings['lending.linkPhoneByVerifiedAccount']) return null;
-
-  let lookup;
-  try {
-    lookup = await fetchCustomerAccounts(phoneNumber);
-  } catch (error) {
-    // The bank is the only witness we have. Without it we cannot claim this
-    // number belongs to an existing borrower, so treat them as new.
-    console.error('[connect] account lookup failed while recognising a new number', error);
-    return null;
-  }
 
   // A simulated lookup answers for any number at all, so it proves nothing.
   if (lookup.simulated) return null;
