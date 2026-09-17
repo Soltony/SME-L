@@ -3,7 +3,17 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, FileUp, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { acceptAttribute, DOCUMENT_KINDS, MAX_ANSWER_LENGTH, type DocumentKind } from '@/lib/document-kinds';
 
@@ -28,6 +38,7 @@ export function ApplicationActions({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(answers.map((a) => [a.key, a.value])));
   const [withdrawing, setWithdrawing] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const files = new Map(uploaded.map((u) => [u.key, u.fileName]));
   const answered = new Map(answers.map((a) => [a.key, a.value]));
 
@@ -59,10 +70,10 @@ export function ApplicationActions({
   };
 
   const withdraw = async () => {
-    if (!window.confirm('Withdraw this application?')) return;
     setWithdrawing(true);
     try {
       await fetch(`/api/app/applications/${applicationId}`, { method: 'DELETE' });
+      setConfirmOpen(false);
       router.refresh();
     } finally {
       setWithdrawing(false);
@@ -140,10 +151,34 @@ export function ApplicationActions({
         </section>
       )}
       {open && (
-        <Button variant="ghost" className="w-full text-destructive" onClick={withdraw} disabled={withdrawing}>
-          {withdrawing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Withdraw application
-        </Button>
+        <AlertDialog open={confirmOpen} onOpenChange={(next) => !withdrawing && setConfirmOpen(next)}>
+          <Button variant="ghost" className="w-full text-destructive" onClick={() => setConfirmOpen(true)} disabled={withdrawing}>
+            {withdrawing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Withdraw application
+          </Button>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Withdraw application</AlertDialogTitle>
+              <AlertDialogDescription>
+                Withdraw this application? You will need to apply again if you change your mind.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={withdrawing}>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={withdrawing}
+                className={buttonVariants({ variant: 'destructive' })}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void withdraw();
+                }}
+              >
+                {withdrawing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Withdraw
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </>
   );

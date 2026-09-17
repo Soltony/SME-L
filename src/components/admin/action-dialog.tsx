@@ -3,7 +3,17 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { Button, type ButtonProps } from '@/components/ui/button';
+import { Button, buttonVariants, type ButtonProps } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -208,47 +218,79 @@ export function ActionDialog({
   );
 }
 
-/** A one-click action with a confirmation step. */
+/** A one-click action with a confirmation step, asked in-app rather than through the browser. */
 export function ConfirmButton({
   label,
   confirm,
+  title,
+  confirmLabel,
   endpoint,
   body,
   variant = 'outline',
   size = 'sm',
+  destructive = false,
+  disabled = false,
   icon,
 }: {
   label: string;
   confirm: string;
+  title?: string;
+  confirmLabel?: string;
   endpoint: string;
   body: unknown;
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
+  destructive?: boolean;
+  disabled?: boolean;
   icon?: React.ReactNode;
 }) {
   const router = useRouter();
   const { toast } = useToast();
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const { ok, data } = await postJson(endpoint, body);
+      toast(ok ? { title: data?.message || 'Done' } : { variant: 'destructive', title: 'Failed', description: data?.error });
+      setOpen(false);
+      if (ok) router.refresh();
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed', description: 'Network error. Please try again.' });
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Button
-      type="button"
-      variant={variant}
-      size={size}
-      disabled={busy}
-      onClick={async () => {
-        if (!window.confirm(confirm)) return;
-        setBusy(true);
-        try {
-          const { ok, data } = await postJson(endpoint, body);
-          toast(ok ? { title: data?.message || 'Done' } : { variant: 'destructive', title: 'Failed', description: data?.error });
-          if (ok) router.refresh();
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : icon}
-      {label}
-    </Button>
+    <AlertDialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
+      <Button type="button" variant={variant} size={size} disabled={disabled || busy} onClick={() => setOpen(true)}>
+        {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : icon}
+        {label}
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title ?? label}</AlertDialogTitle>
+          <AlertDialogDescription>{confirm}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            className={cn(destructive && buttonVariants({ variant: 'destructive' }))}
+            onClick={(event) => {
+              // Keep the dialog open while the request is in flight; `run` closes it.
+              event.preventDefault();
+              void run();
+            }}
+          >
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {confirmLabel ?? label}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

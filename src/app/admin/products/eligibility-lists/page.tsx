@@ -126,6 +126,7 @@ export default async function EligibilityListsPage({ searchParams }: { searchPar
                         <ConfirmButton
                           label="Delete"
                           icon={<Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                          destructive
                           confirm={`Delete ${list.name} and its ${list.entryCount} customers?`}
                           endpoint={`/api/admin/products/eligibility-lists/${list.id}`}
                           body={{ action: 'delete' }}

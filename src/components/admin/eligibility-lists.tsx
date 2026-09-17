@@ -3,7 +3,17 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Download, FileSpreadsheet, Loader2, Upload } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -177,17 +187,19 @@ export function ImportIntoList({ listId, listName, productCount }: { listId: str
   const mode = useRef<'replace' | 'append'>('append');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState(false);
 
-  const pick = (next: 'replace' | 'append') => {
-    if (
-      next === 'replace' &&
-      productCount > 0 &&
-      !window.confirm(`Replace everyone on ${listName}? Customers missing from the new file can no longer take the ${productCount} product(s) using it.`)
-    ) {
-      return;
-    }
+  const openPicker = (next: 'replace' | 'append') => {
     mode.current = next;
     fileInput.current?.click();
+  };
+
+  const pick = (next: 'replace' | 'append') => {
+    if (next === 'replace' && productCount > 0) {
+      setConfirmReplace(true);
+      return;
+    }
+    openPicker(next);
   };
 
   const upload = async (file: File) => {
@@ -218,9 +230,29 @@ export function ImportIntoList({ listId, listName, productCount }: { listId: str
           {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
           Add customers
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => pick('replace')}>
-          Replace list
-        </Button>
+        <AlertDialog open={confirmReplace} onOpenChange={setConfirmReplace}>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => pick('replace')}>
+            Replace list
+          </Button>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Replace list</AlertDialogTitle>
+              <AlertDialogDescription>
+                Replace everyone on {listName}? Customers missing from the new file can no longer take the {productCount} product(s) using it.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className={buttonVariants({ variant: 'destructive' })}
+                // The picker needs the dialog gone first; the click still counts as user-initiated.
+                onClick={() => setTimeout(() => openPicker('replace'), 0)}
+              >
+                Choose file
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       {result && <UploadResult result={result} />}
     </div>
