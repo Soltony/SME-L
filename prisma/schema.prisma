@@ -793,6 +793,20 @@ model LedgerLine {
 // NOTIFICATIONS
 // --------------------------------------
 
+/// Operator wording for one borrower message. A code with no row sends the
+/// default from `src/lib/notification-templates.ts`, so a fresh installation
+/// needs no seed; the row appears the first time someone edits or switches
+/// that message off.
+model NotificationTemplate {
+  code        String   @id // LOAN_DISBURSED | REPAYMENT_RECEIVED | DUE_REMINDER | ...
+  bodyEn      String   @db.NVarChar(1000)
+  /// Null sends the English text even when the SMS language is Amharic.
+  bodyAm      String?  @db.NVarChar(1000)
+  active      Boolean  @default(true)
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
 model NotificationLog {
   id        String   @id @default(cuid())
   recipient String
@@ -803,8 +817,13 @@ model NotificationLog {
   error     String?  @db.NVarChar(1000)
   entity    String?
   entityId  String?
+  /// The provider whose loan or application the message is about, so provider
+  /// staff see their own borrowers' messages and nobody else's.
+  providerId String?
   createdAt DateTime @default(now())
 
   @@index([recipient])
   @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([providerId, createdAt])
 }

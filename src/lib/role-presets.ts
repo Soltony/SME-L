@@ -47,6 +47,9 @@ export const ROLE_PRESETS: RolePreset[] = [
       disbursements: R,
       repayments: RC,
       borrowers: R,
+      // "Did the borrower get the SMS?" is a follow-up question; the wording is not theirs to change.
+      notifications: R,
+      'notifications.logs': R,
       products: R,
       reports: R,
       approvals: R,

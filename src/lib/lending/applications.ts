@@ -286,9 +286,10 @@ export async function rejectApplication(
   void notifyBorrower({
     phone: application.borrower.phoneNumber,
     template: 'APPLICATION_REJECTED',
-    vars: { applicationNo: application.applicationNo, reason: reason ? ` Reason: ${reason}` : '' },
+    vars: { applicationNo: application.applicationNo, reason: reason.trim() },
     entity: 'LoanApplication',
     entityId: applicationId,
+    providerId: application.providerId,
   });
   return updated;
 }

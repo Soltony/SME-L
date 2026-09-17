@@ -68,6 +68,10 @@ or run `npm run run:worker` as a service. Both are safe to run repeatedly: each 
 before doing anything, so a double invocation accrues once, and a missed day is caught up on the
 next pass rather than skipped.
 
+Due-date reminders wait for the hour set in **Settings → Notifications** (09:00 business time by
+default), so run the tick at least hourly for them to go out on time. The wording of every borrower
+SMS, a switch per message and the delivery log are under **Notifications** in the console.
+
 ### Deploying
 
 Serve it over HTTPS behind a reverse proxy, with `TRUST_PROXY=true` so client addresses and the

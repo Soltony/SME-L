@@ -39,6 +39,12 @@ export function today(now: Date = new Date()): Day {
   return Math.floor((now.getTime() + businessOffsetMinutes() * 60_000) / MS_PER_DAY);
 }
 
+/** The hour on the business clock (0–23), for work that should wait until morning. */
+export function businessHour(now: Date = new Date()): number {
+  const minutes = Math.floor((now.getTime() + businessOffsetMinutes() * 60_000) / 60_000);
+  return Math.floor((((minutes % 1440) + 1440) % 1440) / 60);
+}
+
 /** A `@db.Date` value (UTC midnight) → business day. */
 export function dayFromDate(date: Date): Day {
   return Math.floor(date.getTime() / MS_PER_DAY);

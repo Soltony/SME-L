@@ -1,9 +1,9 @@
 import prisma from './prisma';
 import { createAuditLog } from './audit-log';
-import { dateFromDay, dayFromDate, dayToIso, formatDay, today } from './business-date';
+import { businessHour, dateFromDay, dayFromDate, dayToIso, formatDay, today } from './business-date';
 import { formatMoney, toCents } from './money';
 import { getSettings } from './settings';
-import { notifyBorrower } from './notifications';
+import { isTemplateActive, notifyBorrower } from './notifications';
 import { runAccrualBatch } from './lending/loan-service';
 import { processDisbursementQueue } from './lending/disbursement';
 import { expireStalePaymentIntents } from './lending/payments';
@@ -15,7 +15,7 @@ import { expireStalePaymentIntents } from './lending/payments';
  *  - wallet payments nobody confirmed are marked expired;
  *  - queued disbursements are sent, and interrupted ones flagged for review;
  *  - every active loan is accrued to today (a no-op after the first run of the day);
- *  - due-date reminders go out once per business day.
+ *  - due-date reminders go out once per business day, from the configured hour.
  *
  * Driven by `/api/cron/tick` or `npm run run:worker`. The previous SME worker
  * ran each job on its own 24-hour sleep, so a restart at the wrong moment
@@ -52,11 +52,15 @@ async function sendDueReminders(day: number): Promise<number> {
   const settings = await getSettings();
   const daysBefore = Number(settings['notifications.reminderDaysBefore']) || 0;
   if (daysBefore <= 0 || !settings['notifications.enabled']) return 0;
+  // Switched off under Notifications: skip the batch rather than log thousands of skips.
+  if (!(await isTemplateActive('DUE_REMINDER'))) return 0;
 
   const target = day + daysBefore;
   const due = await prisma.loanInstallment.findMany({
     where: { dueDate: dateFromDay(target), loan: { status: 'ACTIVE' } },
-    include: { loan: { select: { id: true, loanNumber: true, borrower: { select: { phoneNumber: true } } } } },
+    include: {
+      loan: { select: { id: true, loanNumber: true, providerId: true, borrower: { select: { phoneNumber: true } } } },
+    },
     take: 5000,
   });
 
@@ -65,7 +69,7 @@ async function sendDueReminders(day: number): Promise<number> {
   for (const installment of due) {
     const remaining = toCents(installment.principalDue) - toCents(installment.principalPaid);
     if (remaining <= 0) continue;
-    await notifyBorrower({
+    const outcome = await notifyBorrower({
       phone: installment.loan.borrower.phoneNumber,
       template: 'DUE_REMINDER',
       vars: {
@@ -75,8 +79,9 @@ async function sendDueReminders(day: number): Promise<number> {
       },
       entity: 'Loan',
       entityId: installment.loan.id,
+      providerId: installment.loan.providerId,
     });
-    sent += 1;
+    if (outcome === 'SENT') sent += 1;
   }
   return sent;
 }
@@ -108,7 +113,10 @@ export async function runMaintenance(): Promise<MaintenanceSummary> {
       console.error('[maintenance] accrual failures', accrual.errors.slice(0, 20));
     }
 
-    if (await claimDailyJob('reminders', day)) {
+    // The day's claim is taken only once the send hour has come, so a pass just
+    // after midnight cannot spend it and text borrowers in the night.
+    const reminderHour = Number((await getSettings())['notifications.reminderHour']) || 0;
+    if (businessHour() >= reminderHour && (await claimDailyJob('reminders', day))) {
       summary.reminders = await sendDueReminders(day);
     }
 

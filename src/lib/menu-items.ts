@@ -1,6 +1,7 @@
 import {
   BadgeDollarSign,
   BarChart3,
+  BellRing,
   BookOpenCheck,
   BookUser,
   Building2,
@@ -40,6 +41,7 @@ const DECORATION: Record<string, { icon: LucideIcon; group: MenuGroup }> = {
   '/admin/disbursements': { icon: Send, group: 'Operations' },
   '/admin/repayments': { icon: Landmark, group: 'Operations' },
   '/admin/borrowers': { icon: Users, group: 'Operations' },
+  '/admin/notifications': { icon: BellRing, group: 'Operations' },
   '/admin/providers': { icon: Building2, group: 'Lending setup' },
   '/admin/products': { icon: Package, group: 'Lending setup' },
   '/admin/credit-scoring': { icon: Gauge, group: 'Lending setup' },

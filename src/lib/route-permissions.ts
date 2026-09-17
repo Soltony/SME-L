@@ -32,6 +32,14 @@ export const ADMIN_ROUTES: AdminRoute[] = [
   { path: '/admin/disbursements', label: 'Disbursements' },
   { path: '/admin/repayments', label: 'Repayments' },
   { path: '/admin/borrowers', label: 'Borrowers' },
+  {
+    path: '/admin/notifications',
+    label: 'Notifications',
+    subModules: [
+      { tab: 'templates', label: 'Templates' },
+      { tab: 'logs', label: 'Delivery log' },
+    ],
+  },
   { path: '/admin/providers', label: 'Providers' },
   { path: '/admin/products', label: 'Products' },
   { path: '/admin/credit-scoring', label: 'Credit Scoring' },
@@ -94,6 +102,7 @@ export const API_MODULE_MAP: Record<string, string> = {
   '/api/admin/disbursements': 'disbursements',
   '/api/admin/repayments': 'repayments',
   '/api/admin/borrowers': 'borrowers',
+  '/api/admin/notifications': 'notifications',
   '/api/admin/providers': 'providers',
   '/api/admin/products': 'products',
   '/api/admin/credit-scoring': 'credit-scoring',

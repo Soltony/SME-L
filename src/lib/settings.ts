@@ -1,4 +1,5 @@
 import prisma from './prisma';
+import { SMS_LANGUAGES } from './notification-templates';
 
 /**
  * Central configuration registry. The Settings page renders itself from these
@@ -122,10 +123,20 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   {
     key: 'notifications.enabled',
     label: 'Borrower SMS',
-    description: 'Disbursement confirmations, repayment receipts and due-date reminders.',
+    description:
+      'Master switch for every borrower message: application updates, disbursement confirmations, repayment receipts and due-date reminders. While off, messages are logged as skipped. Wording and per-message switches are under Notifications.',
     category: 'notifications',
     type: 'boolean',
     default: true,
+  },
+  {
+    key: 'notifications.language',
+    label: 'SMS language',
+    description: 'Messages with Amharic text go out in Amharic; any message without it is sent in English.',
+    category: 'notifications',
+    type: 'select',
+    default: 'en',
+    options: [...SMS_LANGUAGES],
   },
   {
     key: 'notifications.reminderDaysBefore',
@@ -136,6 +147,17 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     default: 2,
     min: 0,
     max: 30,
+  },
+  {
+    key: 'notifications.reminderHour',
+    label: 'Send reminders from (hour)',
+    description:
+      'Reminders go out on the first maintenance run after this hour, in business time (0–23), so they never arrive overnight. 9 means from 09:00.',
+    category: 'notifications',
+    type: 'number',
+    default: 9,
+    min: 0,
+    max: 23,
   },
   {
     key: 'security.maxFailedLogins',
