@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import prisma from './prisma';
 import { ApiError } from './errors';
 import { acquireAppLock, locks, type TxClient } from './db-lock';
@@ -8,7 +8,7 @@ import { centsToDecimal, parseUserAmount, toCents } from './money';
 import { invalidateSettingsCache, SETTINGS_BY_KEY, validateSettingValue } from './settings';
 import { provisionChartOfAccounts } from './accounting/ledger';
 import { productSchema, providerSchema, taxRuleSchema, termsSchema } from './lending/catalog';
-import { scoringModelSchema, tiersSchema } from './lending/scoring';
+import { scoringModelSchema, tierAmountIssues, tiersSchema } from './lending/scoring';
 import { modelFieldIssues } from './lending/scoring-fields';
 import { providerFieldCatalogue } from './lending/field-catalogue';
 import {
@@ -183,17 +183,22 @@ export const CHANGE_HANDLERS = {
     label: 'Replace loan amount tiers',
     module: 'products',
     schema: z.object({ tiers: tiersSchema }),
-    providerOf: async (tx, _p, id) => {
-      const product = await tx.loanProduct.findUnique({ where: { id: id ?? '' }, select: { providerId: true } });
+    providerOf: async (tx, p, id) => {
+      const product = await tx.loanProduct.findUnique({ where: { id: id ?? '' }, select: { providerId: true, maxAmount: true } });
       if (!product) throw new ApiError(404, 'Product not found.');
+      // Refused when requested, under the tier at fault, rather than left for the approver to hit.
+      const issues = tierAmountIssues(p.tiers, toCents(product.maxAmount));
+      if (issues.length) {
+        throw new ZodError(issues.map((issue) => ({ code: 'custom' as const, path: ['tiers', ...issue.path], message: issue.message })));
+      }
       return product.providerId;
     },
     apply: async (tx, p, id) => {
       const product = await tx.loanProduct.findUnique({ where: { id: id ?? '' } });
       if (!product) throw new ApiError(404, 'Product not found.');
-      const max = toCents(product.maxAmount);
-      if (p.tiers.some((t) => toCents(t.maxAmount) > max)) {
-        throw new ApiError(400, 'A tier amount is above the product maximum.');
+      const [issue] = tierAmountIssues(p.tiers, toCents(product.maxAmount));
+      if (issue) {
+        throw new ApiError(400, `Tier ${Number(issue.path[0]) + 1}: ${issue.message} Reject this request and submit corrected tiers.`);
       }
       await tx.loanAmountTier.deleteMany({ where: { productId: product.id } });
       if (p.tiers.length) {

@@ -125,6 +125,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             </p>
             <TierEditor
               productId={product.id}
+              productMax={product.maxAmount.toString()}
               canSubmit={canUpdate}
               initial={product.tiers.map((t) => ({ minScore: String(t.minScore), maxScore: String(t.maxScore), maxAmount: t.maxAmount.toString() }))}
             />

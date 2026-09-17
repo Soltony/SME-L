@@ -5,8 +5,10 @@ import {
   normalizeFieldName,
   scoreBorrower,
   scoringModelSchema,
+  tierAmountIssues,
   tiersSchema,
 } from './scoring';
+import { toCents } from '@/lib/money';
 import { boolish, productPricingSchema } from './terms';
 
 describe('field names', () => {
@@ -118,5 +120,24 @@ describe('product pricing validation', () => {
         ],
       }).success
     ).toBe(false);
+  });
+});
+
+describe('tierAmountIssues', () => {
+  it('flags each tier offering more than the product maximum, under its amount', () => {
+    const issues = tierAmountIssues(
+      [
+        { maxAmount: '50000' },
+        { maxAmount: '100000' },
+        { maxAmount: '50000.01' },
+      ],
+      toCents('50000')
+    );
+    expect(issues.map((i) => i.path)).toEqual([[1, 'maxAmount'], [2, 'maxAmount']]);
+    expect(issues[0].message).toBe('Above the product maximum of 50,000.00.');
+  });
+
+  it('leaves unreadable amounts to the tier schema', () => {
+    expect(tierAmountIssues([{ maxAmount: 'lots' }, { maxAmount: '' }], toCents('100'))).toEqual([]);
   });
 });

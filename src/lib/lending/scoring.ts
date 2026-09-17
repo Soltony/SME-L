@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { formatMoney, parseUserAmount, type Cents } from '@/lib/money';
 import { boolish } from './terms';
 
 /**
@@ -254,6 +255,22 @@ export const tiersSchema = z
  * score each one starts at, both required to start at 0 — so every borrower
  * falls in exactly one cell. There are no ranges to leave gaps between.
  */
+/**
+ * Tiers offering more than the product lends. Kept out of `tiersSchema`
+ * because it needs the product: checked in the editor as tiers are typed, when
+ * the change is requested, and again when it is approved — the product's
+ * maximum may have been lowered in between.
+ */
+export function tierAmountIssues(tiers: { maxAmount: unknown }[], productMax: Cents): { path: (string | number)[]; message: string }[] {
+  return tiers.flatMap((tier, index) => {
+    const amount = parseUserAmount(tier.maxAmount);
+    // An unreadable amount is `tiersSchema`'s to report.
+    return amount !== null && amount > productMax
+      ? [{ path: [index, 'maxAmount'], message: `Above the product maximum of ${formatMoney(productMax, '')}.` }]
+      : [];
+  });
+}
+
 export const LOAN_CYCLE_METRICS = ['PAID_OFF_LOANS', 'ON_TIME_LOANS', 'EARLY_LOANS'] as const;
 export type LoanCycleMetric = (typeof LOAN_CYCLE_METRICS)[number];
 

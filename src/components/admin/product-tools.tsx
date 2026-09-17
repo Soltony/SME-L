@@ -8,28 +8,73 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { postJson } from './action-dialog';
 import { money } from '@/components/money';
+import { toCents, type Cents } from '@/lib/money';
+import { tierAmountIssues, tiersSchema } from '@/lib/lending/scoring';
 
 type Tier = { minScore: string; maxScore: string; maxAmount: string };
 
-export function TierEditor({ productId, initial, canSubmit }: { productId: string; initial: Tier[]; canSubmit: boolean }) {
+/** Every problem with a tier table, keyed "row.field", from the same rules the server applies. */
+function tierErrors(tiers: Tier[], productMax: Cents): Record<string, string> {
+  const out: Record<string, string> = {};
+  const parsed = tiersSchema.safeParse(tiers);
+  const issues = [...(parsed.success ? [] : parsed.error.issues), ...tierAmountIssues(tiers, productMax)];
+  for (const issue of issues) {
+    const key = issue.path.join('.');
+    if (!out[key]) out[key] = issue.message;
+  }
+  return out;
+}
+
+const filled = (tier: Tier) => Boolean(tier.minScore.trim() && tier.maxScore.trim() && tier.maxAmount.trim());
+
+export function TierEditor({
+  productId,
+  initial,
+  productMax,
+  canSubmit,
+}: {
+  productId: string;
+  initial: Tier[];
+  /** The product's stored maximum, as a decimal string; no tier may offer more. */
+  productMax: string;
+  canSubmit: boolean;
+}) {
   const router = useRouter();
   const { toast } = useToast();
   const [tiers, setTiers] = useState<Tier[]>(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
+  // Until the first submit, a row still being typed is not complained about.
+  const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const maxCents = toCents(productMax);
+  const checked = tierErrors(tiers, maxCents);
+  const rowOf = (key: string) => tiers[Number(key.split('.')[0])];
+  const shown = attempted ? checked : Object.fromEntries(Object.entries(checked).filter(([key]) => rowOf(key) && filled(rowOf(key))));
+  const errors = { ...serverErrors, ...shown };
+
+  const edit = (next: Tier[]) => {
+    setTiers(next);
+    setServerErrors({});
+  };
+
   const submit = async () => {
+    setAttempted(true);
+    if (Object.keys(checked).length) {
+      toast({ variant: 'destructive', title: 'Not submitted', description: 'Fix the tiers marked in red first.' });
+      return;
+    }
     setBusy(true);
-    setErrors({});
     try {
       const { ok, data } = await postJson(`/api/admin/products/${productId}`, { action: 'tiers', tiers });
       if (!ok) {
         const issues: { path: string; message: string }[] = data?.issues ?? [];
-        if (issues.length) setErrors(Object.fromEntries(issues.map((i) => [i.path.replace(/^tiers\./, ''), i.message])));
+        if (issues.length) setServerErrors(Object.fromEntries(issues.map((i) => [i.path.replace(/^tiers\./, ''), i.message])));
         toast({ variant: 'destructive', title: 'Not submitted', description: data?.error });
         return;
       }
       toast({ title: data.message });
+      setAttempted(false);
       router.refresh();
     } finally {
       setBusy(false);
@@ -38,6 +83,9 @@ export function TierEditor({ productId, initial, canSubmit }: { productId: strin
 
   return (
     <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Product maximum: <span className="num font-medium text-foreground">{money(maxCents / 100)}</span>. No tier may offer more.
+      </p>
       <div className="grid grid-cols-[1fr_1fr_1.5fr_40px] gap-2 text-xs font-medium text-muted-foreground">
         <span>Score from</span>
         <span>Score to</span>
@@ -51,13 +99,15 @@ export function TierEditor({ productId, initial, canSubmit }: { productId: strin
               <Input
                 key={key}
                 aria-label={key}
+                aria-invalid={Boolean(errors[`${i}.${key}`])}
                 value={tier[key]}
                 disabled={!canSubmit}
-                onChange={(e) => setTiers(tiers.map((t, j) => (j === i ? { ...t, [key]: e.target.value } : t)))}
+                inputMode={key === 'maxAmount' ? 'decimal' : 'numeric'}
+                onChange={(e) => edit(tiers.map((t, j) => (j === i ? { ...t, [key]: e.target.value } : t)))}
                 className={errors[`${i}.${key}`] ? 'border-destructive' : ''}
               />
             ))}
-            <Button type="button" variant="ghost" size="icon" aria-label="Remove tier" disabled={!canSubmit} onClick={() => setTiers(tiers.filter((_, j) => j !== i))}>
+            <Button type="button" variant="ghost" size="icon" aria-label="Remove tier" disabled={!canSubmit} onClick={() => edit(tiers.filter((_, j) => j !== i))}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
@@ -72,7 +122,7 @@ export function TierEditor({ productId, initial, canSubmit }: { productId: strin
       ))}
       {canSubmit && (
         <div className="flex gap-2 pt-1">
-          <Button type="button" size="sm" variant="outline" onClick={() => setTiers([...tiers, { minScore: '', maxScore: '', maxAmount: '' }])}>
+          <Button type="button" size="sm" variant="outline" onClick={() => edit([...tiers, { minScore: '', maxScore: '', maxAmount: '' }])}>
             <Plus className="mr-1 h-3.5 w-3.5" /> Add tier
           </Button>
           <Button type="button" size="sm" onClick={submit} disabled={busy}>
