@@ -29,13 +29,14 @@ interface Props {
   user: { id: string; fullName: string; email: string; role: string; providerName: string | null };
   items: AdminNavItem[];
   brandName: string;
+  brandLogo: string | null;
   devWarnings: string[];
   pendingApprovals: number;
 }
 
 const ICONS = new Map(allMenuItems.map((item) => [item.path, item.icon]));
 
-export function AdminShell({ children, user, items, pendingApprovals, brandName, devWarnings }: Props) {
+export function AdminShell({ children, user, items, pendingApprovals, brandName, brandLogo, devWarnings }: Props) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -110,7 +111,7 @@ export function AdminShell({ children, user, items, pendingApprovals, brandName,
         )}
       >
         <div className="flex h-14 items-center justify-between border-b border-border px-3">
-          {!collapsed && <LogoWordmark className="text-base" name={brandName} />}
+          {!collapsed && <LogoWordmark className="text-base" name={brandName} logo={brandLogo} />}
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -134,7 +135,7 @@ export function AdminShell({ children, user, items, pendingApprovals, brandName,
           />
           <aside className="relative flex h-full w-64 flex-col bg-card shadow-xl">
             <div className="flex h-14 items-center justify-between border-b border-border px-3">
-              <LogoWordmark className="text-base" name={brandName} />
+              <LogoWordmark className="text-base" name={brandName} logo={brandLogo} />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}

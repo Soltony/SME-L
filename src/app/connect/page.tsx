@@ -38,7 +38,7 @@ export default async function ConnectPage({
     <main className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <LogoMark className="h-12 w-12" />
+          <LogoMark src={String(settings?.['platform.logo'] || '') || null} className="h-12 w-12" />
           <h1 className="mt-3 text-lg font-semibold">Open {brand} from the super app</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             We use your super-app account to identify you, find your bank accounts and collect repayments from your wallet.

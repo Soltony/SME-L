@@ -38,6 +38,7 @@ export default async function AdminLoginPage({
   ]);
   if (user) redirect(user.passwordChangeRequired ? '/admin/change-password' : '/admin');
   const brand = String(settings?.['platform.name'] || 'SME Lending');
+  const logo = String(settings?.['platform.logo'] || '') || null;
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-12">
@@ -46,7 +47,7 @@ export default async function AdminLoginPage({
         <div className="grid overflow-hidden rounded-3xl border border-border bg-card shadow-[0_40px_80px_-40px_hsl(224_47%_9%/0.45)] lg:grid-cols-2">
           <section className="ink hidden flex-col justify-between gap-10 p-10 lg:flex">
             <span className="inline-flex items-center gap-2 text-lg font-extrabold tracking-tight">
-              <LogoMark />
+              <LogoMark src={logo} />
               {brand}
             </span>
             <div>
@@ -69,6 +70,7 @@ export default async function AdminLoginPage({
           </section>
           <LoginForm
             brand={brand}
+            logo={logo}
             notice={params.passwordChanged ? 'Password updated. Sign in with your new password.' : null}
           />
         </div>

@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function BorrowerLayout({ children }: { children: React.ReactNode }) {
   const [{ session, borrower }, settings] = await Promise.all([requireBorrowerPage(), getSettings()]);
   const brand = String(settings['platform.name'] || 'SME Lending');
+  const logo = String(settings['platform.logo'] || '') || null;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col bg-background">
@@ -18,7 +19,7 @@ export default async function BorrowerLayout({ children }: { children: React.Rea
       )}
       <header className="ink sticky top-0 z-30 flex items-center justify-between px-4 py-3">
         <span className="flex items-center gap-2 font-bold">
-          <LogoMark className="h-7 w-7" />
+          <LogoMark src={logo} className="h-7 w-7" />
           {brand}
         </span>
         <span className="text-xs text-[hsl(var(--ink-muted))]">{borrower.fullName ?? borrower.phoneNumber}</span>

@@ -11,7 +11,15 @@ import { cn } from '@/lib/utils';
 
 const FIELD = 'h-11 rounded-lg bg-secondary pl-10 focus-visible:bg-card';
 
-export function LoginForm({ notice, brand }: { notice?: string | null; brand: string }) {
+export function LoginForm({
+  notice,
+  brand,
+  logo,
+}: {
+  notice?: string | null;
+  brand: string;
+  logo?: string | null;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,7 +65,7 @@ export function LoginForm({ notice, brand }: { notice?: string | null; brand: st
     <div className="flex flex-col justify-center px-7 py-10 sm:px-12">
       <form onSubmit={submit} className="mx-auto w-full max-w-sm">
         <div className="lg:hidden">
-          <LogoWordmark name={brand} />
+          <LogoWordmark name={brand} logo={logo} />
         </div>
         <h1 className="mt-6 text-2xl font-extrabold tracking-tight lg:mt-0">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">Use your staff email and password.</p>

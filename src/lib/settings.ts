@@ -1,5 +1,6 @@
 import prisma from './prisma';
 import { SMS_LANGUAGES } from './notification-templates';
+import { isValidPlatformLogo, PLATFORM_LOGO_ERROR } from './platform-logo';
 
 /**
  * Central configuration registry. The Settings page renders itself from these
@@ -7,7 +8,7 @@ import { SMS_LANGUAGES } from './notification-templates';
  * Secrets never live here — they stay in the environment.
  */
 
-export type SettingType = 'number' | 'string' | 'boolean' | 'select';
+export type SettingType = 'number' | 'string' | 'boolean' | 'select' | 'image';
 
 export const SETTING_CATEGORIES = ['platform', 'lending', 'payments', 'notifications', 'security'] as const;
 export type SettingCategory = (typeof SETTING_CATEGORIES)[number];
@@ -53,6 +54,15 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     type: 'string',
     default: 'ETB',
     sensitive: true,
+  },
+  {
+    key: 'platform.logo',
+    label: 'Brand logo',
+    description:
+      'Shown in the console sidebar, the borrower app header and the sign-in screens. Leave it empty to use the built-in mark. A square image reads best.',
+    category: 'platform',
+    type: 'image',
+    default: '',
   },
   {
     key: 'platform.supportPhone',
@@ -269,6 +279,13 @@ export function validateSettingValue(
       return { ok: false, error: `${definition.label} must be at most ${definition.max}.` };
     }
     return { ok: true, value: n };
+  }
+  // An image is stored inline, so it is checked against the upload rules rather
+  // than the text cap below — a base64 logo is far longer than 200 characters.
+  if (definition.type === 'image') {
+    const uri = String(value ?? '').trim();
+    if (!isValidPlatformLogo(uri)) return { ok: false, error: PLATFORM_LOGO_ERROR };
+    return { ok: true, value: uri };
   }
   const text = String(value ?? '').trim();
   if (text.length > 200) return { ok: false, error: `${definition.label} is too long.` };

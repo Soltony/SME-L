@@ -1,16 +1,11 @@
+import { INLINE_IMAGE_MIME_TYPES, inlineImageUriLength, isInlineImage, isValidInlineImage } from './inline-image';
+
 /**
  * What a provider's icon may be.
  *
  * Two forms, both stored in a single column: the name of one of the curated
  * Lucide icons below, or an image the operator uploaded, inlined as a base64
- * `data:` URI. Inlining keeps a provider's whole identity in its row — no file
- * store to back up, no second request to serve a logo on a borrower's first
- * screen — at the cost of a size cap, which is the point of the constants here.
- *
- * Base64 specifically, never a raw `data:image/svg+xml,<svg …>`: a plain-text
- * SVG carries markup, and `findMarkupField` refuses markup in any submitted
- * field before it is ever stored. Uploaded icons are only ever rendered through
- * an `<img>` element, which does not run script inside an SVG.
+ * `data:` URI — see `inline-image.ts` for why that form and what it costs.
  */
 
 /** The icons an operator can pick without uploading anything. */
@@ -30,7 +25,7 @@ export type ProviderIconName = (typeof PROVIDER_ICON_NAMES)[number];
 export const DEFAULT_PROVIDER_ICON: ProviderIconName = 'Landmark';
 
 /** Image types an upload may use. SVG is allowed; it is never inlined as markup. */
-export const PROVIDER_ICON_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'] as const;
+export const PROVIDER_ICON_MIME_TYPES = INLINE_IMAGE_MIME_TYPES;
 
 /**
  * The largest file an operator may upload. A logo is a few kilobytes; this
@@ -39,14 +34,12 @@ export const PROVIDER_ICON_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'
  */
 export const MAX_PROVIDER_ICON_BYTES = 64 * 1024;
 
-/** The same cap expressed for the stored string: base64 costs a third more, plus the prefix. */
-export const MAX_PROVIDER_ICON_URI_LENGTH = Math.ceil((MAX_PROVIDER_ICON_BYTES * 4) / 3) + 64;
-
-const UPLOADED_ICON = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
+/** The same cap expressed for the stored string. */
+export const MAX_PROVIDER_ICON_URI_LENGTH = inlineImageUriLength(MAX_PROVIDER_ICON_BYTES);
 
 /** True when the icon is an uploaded image rather than one of the named ones. */
 export function isUploadedIcon(icon: string | null | undefined): boolean {
-  return typeof icon === 'string' && icon.startsWith('data:');
+  return isInlineImage(icon);
 }
 
 export function isProviderIconName(icon: string): icon is ProviderIconName {
@@ -54,7 +47,7 @@ export function isProviderIconName(icon: string): icon is ProviderIconName {
 }
 
 export function isValidProviderIcon(icon: string): boolean {
-  if (isUploadedIcon(icon)) return icon.length <= MAX_PROVIDER_ICON_URI_LENGTH && UPLOADED_ICON.test(icon);
+  if (isUploadedIcon(icon)) return isValidInlineImage(icon, MAX_PROVIDER_ICON_URI_LENGTH);
   return isProviderIconName(icon);
 }
 

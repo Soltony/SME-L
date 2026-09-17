@@ -58,6 +58,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       items={visibleItems}
       pendingApprovals={pendingApprovals}
       brandName={String(settings['platform.name'] || 'SME Lending')}
+      brandLogo={String(settings['platform.logo'] || '') || null}
       devWarnings={activeDevSwitches()}
     >
       {children}

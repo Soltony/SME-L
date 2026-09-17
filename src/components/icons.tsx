@@ -1,7 +1,17 @@
 import { cn } from '@/lib/utils';
 
-/** Rising bars on a ledger line: lending that grows a business. Inline so it follows currentColor. */
-export function LogoMark({ className }: { className?: string }) {
+/**
+ * The platform's mark: the operator's uploaded logo when `platform.logo` is
+ * set, otherwise the built-in one below — rising bars on a ledger line, lending
+ * that grows a business. Inline so it follows currentColor.
+ *
+ * An uploaded logo goes through `<img>` and nothing else, which is what makes
+ * accepting an SVG safe: markup loaded that way cannot run script.
+ */
+export function LogoMark({ className, src }: { className?: string; src?: string | null }) {
+  if (src) {
+    return <img src={src} alt="" aria-hidden className={cn('h-7 w-7 shrink-0 object-contain', className)} />;
+  }
   return (
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn('h-7 w-7', className)} aria-hidden="true">
       <rect width="32" height="32" rx="8" className="fill-primary" />
@@ -13,10 +23,18 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function LogoWordmark({ className, name = 'SME Lending' }: { className?: string; name?: string }) {
+export function LogoWordmark({
+  className,
+  name = 'SME Lending',
+  logo,
+}: {
+  className?: string;
+  name?: string;
+  logo?: string | null;
+}) {
   return (
     <span className={cn('inline-flex items-center gap-2 font-extrabold tracking-tight', className)}>
-      <LogoMark className="h-7 w-7 shrink-0" />
+      <LogoMark src={logo} className="h-7 w-7 shrink-0" />
       <span className="text-foreground">{name}</span>
     </span>
   );

@@ -1,14 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, RotateCcw, ShieldAlert } from 'lucide-react';
+import { Loader2, RotateCcw, ShieldAlert, Upload } from 'lucide-react';
+import { LogoMark } from '@/components/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
+import { MAX_PLATFORM_LOGO_BYTES, PLATFORM_LOGO_ERROR, PLATFORM_LOGO_MIME_TYPES } from '@/lib/platform-logo';
 import { cn } from '@/lib/utils';
 import { postJson } from './action-dialog';
 
@@ -16,7 +18,7 @@ export interface SettingField {
   key: string;
   label: string;
   description: string;
-  type: 'number' | 'string' | 'boolean' | 'select';
+  type: 'number' | 'string' | 'boolean' | 'select' | 'image';
   sensitive: boolean;
   unit?: string;
   min?: number;
@@ -29,6 +31,79 @@ type Value = string | number | boolean;
 /** Number inputs hold text while being typed, so 3 and '3' must compare equal. */
 function same(field: SettingField, a: Value, b: Value) {
   return field.type === 'number' ? String(a) === String(b) : a === b;
+}
+
+/**
+ * Picks a brand mark and hands it back as an inline data URI, which is how the
+ * setting stores it. Reads the file in the browser, so there is no upload
+ * endpoint and nothing is written anywhere until the form is saved.
+ */
+function LogoField({
+  id,
+  value,
+  disabled,
+  onChange,
+  onError,
+}: {
+  id: string;
+  value: string;
+  disabled: boolean;
+  onChange: (uri: string) => void;
+  onError: (message: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+
+  const read = (file: File) => {
+    if (!(PLATFORM_LOGO_MIME_TYPES as readonly string[]).includes(file.type)) {
+      onError(PLATFORM_LOGO_ERROR);
+      return;
+    }
+    if (file.size > MAX_PLATFORM_LOGO_BYTES) {
+      onError(`That image is ${Math.ceil(file.size / 1024)} KB. The limit is ${Math.round(MAX_PLATFORM_LOGO_BYTES / 1024)} KB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => onError('That image could not be read.');
+    reader.onload = () => onChange(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-border bg-background">
+        {value ? (
+          <img src={value} alt="" aria-hidden className="h-10 w-10 object-contain" />
+        ) : (
+          <LogoMark className="h-9 w-9" />
+        )}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        <input
+          ref={input}
+          id={id}
+          type="file"
+          className="hidden"
+          accept={PLATFORM_LOGO_MIME_TYPES.join(',')}
+          disabled={disabled}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) read(file);
+            // Let the same file be picked again after a failed attempt.
+            event.target.value = '';
+          }}
+        />
+        <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => input.current?.click()}>
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {value ? 'Replace' : 'Upload'}
+        </Button>
+        {value && (
+          <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange('')}>
+            Remove
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Mirrors the server's rules so a bad number is caught before the round trip. */
@@ -170,7 +245,15 @@ export function SettingsForm({
         {renderLabel(field, changed)}
         <p className="mb-1.5 mt-0.5 text-xs text-muted-foreground">{field.description}</p>
 
-        {field.type === 'select' ? (
+        {field.type === 'image' ? (
+          <LogoField
+            id={field.key}
+            value={String(value ?? '')}
+            disabled={!canUpdate}
+            onChange={(uri) => set(field, uri)}
+            onError={(message) => setErrors((prev) => ({ ...prev, [field.key]: message }))}
+          />
+        ) : field.type === 'select' ? (
           <select
             id={field.key}
             value={String(value ?? '')}
