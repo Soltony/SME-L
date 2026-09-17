@@ -30,6 +30,8 @@ export interface SettingDefinition {
   options?: { value: string; label: string }[];
   min?: number;
   max?: number;
+  /** Shown beside the input so the label does not have to carry the unit. */
+  unit?: string;
   /** Changing it goes through maker-checker when that is switched on. */
   sensitive?: boolean;
 }
@@ -91,7 +93,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'lending.disbursementsEnabled',
-    label: 'Disbursements enabled',
+    label: 'Send disbursements to core banking',
     description:
       'The kill switch. When off, approved loans wait in the queue and nothing is sent to core banking until it is switched back on.',
     category: 'lending',
@@ -101,24 +103,26 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'lending.maxOpenLoansPerBorrower',
-    label: 'Open loans per borrower',
+    label: 'Maximum open loans per borrower',
     description: 'Across all providers and products, including loans awaiting disbursement.',
     category: 'lending',
     type: 'number',
     default: 3,
     min: 1,
     max: 20,
+    unit: 'loans',
     sensitive: true,
   },
   {
     key: 'payments.pendingTimeoutMinutes',
-    label: 'Unconfirmed payment timeout (minutes)',
+    label: 'Unconfirmed payment timeout',
     description: 'A wallet payment not confirmed by the gateway within this time is marked expired.',
     category: 'payments',
     type: 'number',
     default: 30,
     min: 5,
     max: 1440,
+    unit: 'minutes',
   },
   {
     key: 'notifications.enabled',
@@ -140,24 +144,26 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
   },
   {
     key: 'notifications.reminderDaysBefore',
-    label: 'Reminder before due date (days)',
+    label: 'Reminder before due date',
     description: 'Borrowers are reminded this many days before an installment falls due. 0 turns reminders off.',
     category: 'notifications',
     type: 'number',
     default: 2,
     min: 0,
     max: 30,
+    unit: 'days',
   },
   {
     key: 'notifications.reminderHour',
-    label: 'Send reminders from (hour)',
+    label: 'Earliest reminder hour',
     description:
-      'Reminders go out on the first maintenance run after this hour, in business time (0–23), so they never arrive overnight. 9 means from 09:00.',
+      'Reminders go out on the first maintenance run after this hour, in business time, so they never arrive overnight. 9 means from 09:00.',
     category: 'notifications',
     type: 'number',
     default: 9,
     min: 0,
     max: 23,
+    unit: '24-hour clock',
   },
   {
     key: 'security.maxFailedLogins',
@@ -168,17 +174,19 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     default: 5,
     min: 3,
     max: 20,
+    unit: 'attempts',
     sensitive: true,
   },
   {
     key: 'security.lockoutMinutes',
-    label: 'Lockout duration (minutes)',
+    label: 'Lockout duration',
     description: 'How long a locked staff account stays locked.',
     category: 'security',
     type: 'number',
     default: 15,
     min: 1,
     max: 1440,
+    unit: 'minutes',
     sensitive: true,
   },
   {

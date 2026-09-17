@@ -36,6 +36,9 @@ export default async function SettingsPage() {
             description: d.description,
             type: d.type,
             sensitive: Boolean(d.sensitive),
+            unit: d.unit,
+            min: d.min,
+            max: d.max,
             options: d.options,
           })),
         })).filter((g) => g.fields.length)}
