@@ -223,7 +223,7 @@ export function ProductForm({
             </label>
           )}
           <p className="text-xs text-muted-foreground md:col-span-4">
-            Interest is charged for each completed day. Taxes configured in Settings are added on top, per charge. Changes apply to new loans
+            Interest is charged for each completed day. Taxes configured under Taxes are added on top, per charge. Changes apply to new loans
             only — every loan keeps the terms it was issued with.
           </p>
         </section>

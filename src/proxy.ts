@@ -11,6 +11,7 @@ import {
   moduleKeyFor,
   moduleKeyForApiPath,
 } from '@/lib/route-permissions';
+import { hasPermission } from '@/lib/permissions';
 import { applySecurityHeaders, buildCsp, isPrivatePath, NO_STORE } from '@/lib/security-headers';
 import { additionalTrustedOrigins, checkRequestOrigin } from '@/lib/request-context';
 import type { Permissions } from '@/lib/types';
@@ -173,7 +174,9 @@ export default async function proxy(req: NextRequest) {
 
   // Deny by default: an unmapped admin page or API is not reachable.
   if (!moduleKey) return deny(403, '/admin/no-access');
-  if (!permissions[moduleKey]?.read) return deny(403, '/admin/no-access');
+  // Through hasPermission, so a role saved before a module was split or moved
+  // reaches it exactly as the page and API guards would let it.
+  if (!hasPermission({ role: session.role, permissions }, moduleKey, 'read')) return deny(403, '/admin/no-access');
 
   const requiredRoles = isApi ? API_ROLE_CONSTRAINTS[moduleKey] : route?.roles;
   if (requiredRoles?.length) {

@@ -247,7 +247,7 @@ export const CHANGE_HANDLERS = {
 
   'TaxRule.CREATE': handler({
     label: 'Create tax rule',
-    module: 'settings',
+    module: 'taxes',
     schema: taxRuleSchema,
     providerOf: async () => null,
     apply: async (tx, p) => {
@@ -258,7 +258,7 @@ export const CHANGE_HANDLERS = {
 
   'TaxRule.UPDATE': handler({
     label: 'Update tax rule',
-    module: 'settings',
+    module: 'taxes',
     schema: taxRuleSchema,
     providerOf: async () => null,
     apply: async (tx, p, id) => {

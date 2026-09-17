@@ -110,6 +110,16 @@ export const taxRuleSchema = z
 
 export type TaxRuleInput = z.infer<typeof taxRuleSchema>;
 
+/**
+ * A tax rule's fields from a request body, which the form sends at the top
+ * level alongside anything else. The Settings page used to read them from a
+ * `tax` key the form never sent, so every tax request failed validation.
+ */
+export function taxPayload(body: Record<string, unknown>) {
+  const { name, ratePercent, appliesToFee, appliesToInterest, appliesToPenalty, status } = body;
+  return { name, ratePercent, appliesToFee, appliesToInterest, appliesToPenalty, status };
+}
+
 export const termsSchema = z.object({
   providerId: z.string().min(1),
   content: z.string().trim().min(20, 'Terms must be at least a sentence long.').max(50_000),

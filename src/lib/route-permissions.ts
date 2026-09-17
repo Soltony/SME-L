@@ -23,6 +23,11 @@ export interface AdminRoute {
   /** Role names allowed here on top of the module permission check. */
   roles?: string[];
   subModules?: SubModule[];
+  /**
+   * The module this one was split out of. A role saved before this module
+   * existed has no grant for it, and takes the old module's instead.
+   */
+  inheritsFrom?: string;
 }
 
 export const ADMIN_ROUTES: AdminRoute[] = [
@@ -43,6 +48,8 @@ export const ADMIN_ROUTES: AdminRoute[] = [
   { path: '/admin/providers', label: 'Providers' },
   { path: '/admin/products', label: 'Products' },
   { path: '/admin/credit-scoring', label: 'Credit Scoring' },
+  // Tax rules lived on the Settings page before they had their own.
+  { path: '/admin/taxes', label: 'Taxes', inheritsFrom: 'settings' },
   { path: '/admin/accounting', label: 'Accounting' },
   { path: '/admin/reports', label: 'Reports' },
   { path: '/admin/approvals', label: 'Approvals' },
@@ -67,6 +74,11 @@ export function parentModuleKey(key: string) {
 
 export function subModulesFor(parentKey: string): SubModule[] {
   return ADMIN_ROUTES.find((route) => moduleKeyFor(route.label) === parentKey)?.subModules ?? [];
+}
+
+/** The module a role saved before `key` existed takes its grants from, if any. */
+export function inheritedModuleKey(key: string): string | undefined {
+  return ADMIN_ROUTES.find((route) => moduleKeyFor(route.label) === key)?.inheritsFrom;
 }
 
 export const PARENT_MODULE_KEYS = ADMIN_ROUTES.map((r) => moduleKeyFor(r.label));
@@ -106,6 +118,7 @@ export const API_MODULE_MAP: Record<string, string> = {
   '/api/admin/providers': 'providers',
   '/api/admin/products': 'products',
   '/api/admin/credit-scoring': 'credit-scoring',
+  '/api/admin/taxes': 'taxes',
   '/api/admin/accounting': 'accounting',
   '/api/admin/reports': 'reports',
   '/api/admin/approvals': 'approvals',

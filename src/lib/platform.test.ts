@@ -7,7 +7,7 @@ import {
   moduleKeyFor,
   moduleKeyForApiPath,
 } from './route-permissions';
-import { hasPermission, sanitizePermissions } from './permissions';
+import { expandTabPermissions, hasPermission, sanitizePermissions } from './permissions';
 import { checkRequestOrigin } from './request-context';
 import { isCbsSimulated, isTestLoginEnabled } from './dev-switches';
 import { ROLE_PRESETS } from './role-presets';
@@ -91,6 +91,20 @@ describe('permissions', () => {
     for (const grant of Object.values(finance.permissions)) {
       expect(grant.approve).toBe(false);
     }
+  });
+
+  it('lets a role saved before Taxes had its own page keep what Settings gave it', () => {
+    const before = { role: 'Approver', permissions: { settings: { read: true, create: false, update: false, delete: false, approve: true } } };
+    expect(hasPermission(before, 'taxes', 'read')).toBe(true);
+    expect(hasPermission(before, 'taxes', 'approve')).toBe(true);
+    expect(hasPermission(before, 'taxes', 'update')).toBe(false);
+    // The role builder shows it that way, so saving the role keeps it.
+    expect(expandTabPermissions(before.permissions).taxes).toMatchObject({ read: true, approve: true });
+
+    // Once the role carries a Taxes grant, that grant alone decides.
+    const after = { role: 'Approver', permissions: { ...before.permissions, taxes: { read: true, create: false, update: false, delete: false, approve: false } } };
+    expect(hasPermission(after, 'taxes', 'approve')).toBe(false);
+    expect(hasPermission({ role: 'Finance', permissions: {} }, 'taxes', 'read')).toBe(false);
   });
 
   it('gives every maker-checker kind a module that exists', () => {

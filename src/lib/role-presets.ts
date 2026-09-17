@@ -101,6 +101,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       reports: R,
       approvals: RA,
       settings: RA,
+      taxes: RA,
     }),
   },
   {

@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
 import { ApiError, handle, isGuardFailure, jsonError, readJsonBody, requirePermission } from '@/lib/api';
 import { requestChange, settingNeedsApproval } from '@/lib/approvals';
 import { createAuditLog } from '@/lib/audit-log';
 import { getSettings, setSetting, SETTINGS_BY_KEY, validateSettingValue } from '@/lib/settings';
-import { taxRuleSchema } from '@/lib/lending/catalog';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Settings and tax rules. Sensitive settings (and every tax change) go
- * through maker-checker; the rest apply at once and are audited.
+ * Platform settings. Sensitive settings go through maker-checker; the rest
+ * apply at once and are audited. Tax rules are under /api/admin/taxes.
  */
 export async function POST(req: NextRequest) {
   const guard = await requirePermission('settings', 'update');
@@ -67,32 +65,6 @@ export async function POST(req: NextRequest) {
       if (Object.keys(direct).length) parts.push(`${Object.keys(direct).length} saved`);
       if (changeId) parts.push(`${Object.keys(gated).length} sent for approval`);
       return { ok: true, message: parts.length ? `Settings: ${parts.join(', ')}.` : 'Nothing changed.', changeId };
-    }
-
-    if (action === 'tax-create') {
-      const change = await requestChange({
-        kind: 'TaxRule.CREATE',
-        payload: body.tax,
-        summary: `Create tax rule ${String((body.tax as { name?: string })?.name ?? '')}`,
-        user,
-      });
-      return { ok: true, message: 'Tax rule submitted for approval. New loans use it once approved.', changeId: change.id };
-    }
-
-    if (action === 'tax-update') {
-      const id = String(body.id || '');
-      const tax = await prisma.taxRule.findUnique({ where: { id } });
-      if (!tax) throw new ApiError(404, 'Tax rule not found.');
-      const previous = taxRuleSchema.parse({ ...tax, ratePercent: tax.ratePercent.toString() });
-      const change = await requestChange({
-        kind: 'TaxRule.UPDATE',
-        entityId: id,
-        payload: body.tax,
-        previousData: previous,
-        summary: `Update tax rule ${tax.name}`,
-        user,
-      });
-      return { ok: true, message: 'Tax change submitted for approval. Existing loans keep their original tax.', changeId: change.id };
     }
 
     return jsonError('Unknown action.', 400);

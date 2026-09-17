@@ -1,4 +1,5 @@
 import {
+  inheritedModuleKey,
   MODULE_KEYS,
   parentModuleKey,
   subModuleKey,
@@ -44,7 +45,12 @@ export function hasPermission(
   // key. Inheriting from it keeps those roles working as they did rather than
   // silently revoking every tab; an explicit tab grant always wins.
   const parent = parentModuleKey(key ?? '');
-  return parent !== key ? !!user.permissions?.[parent]?.[action] : false;
+  if (parent !== key) return !!user.permissions?.[parent]?.[action];
+
+  // Likewise a role saved before a module was moved out of another: Taxes
+  // answers as Settings did until the role is saved with a Taxes grant.
+  const source = inheritedModuleKey(key ?? '');
+  return source ? !!user.permissions?.[source]?.[action] : false;
 }
 
 /**
@@ -94,17 +100,18 @@ export function readableTabs(
 }
 
 /**
- * Materializes tab grants for roles saved before their module was split into
- * tabs, mirroring how `hasPermission` resolves them at runtime. The role
- * builder edits the expanded matrix, so opening and saving an old role cannot
- * quietly revoke the tabs it used to imply.
+ * Materializes grants for roles saved before a module was split into tabs, or
+ * moved out of another module, mirroring how `hasPermission` resolves them at
+ * runtime. The role builder edits the expanded matrix, so opening and saving an
+ * old role cannot quietly revoke what it used to imply.
  */
 export function expandTabPermissions(permissions: Permissions): Permissions {
   const out: Permissions = { ...permissions };
   for (const key of MODULE_KEYS) {
+    if (out[key]) continue;
     const parent = parentModuleKey(key);
-    if (parent === key || out[key]) continue;
-    if (out[parent]) out[key] = { ...out[parent] };
+    const source = parent !== key ? parent : inheritedModuleKey(key);
+    if (source && out[source]) out[key] = { ...out[source] };
   }
   return out;
 }
