@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ChevronRight, Clock, HelpCircle, History, Loader2, PiggyBank, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Clock, HelpCircle, Loader2, PiggyBank, RefreshCw } from 'lucide-react';
 import type { LoanView } from '@/lib/lending/loan-view';
 import type { ProviderCredit } from '@/lib/lending/provider-credit';
-import { alpha, normalizeHex } from '@/lib/brand';
 import { money } from '@/components/money';
 import { ProviderRail, type RailProvider } from './provider-rail';
 import { CreditCard } from './credit-card';
@@ -67,7 +66,6 @@ export function HomeClient({
   const inFlight = useRef(new Set<string>());
 
   const selected = providers.find((p) => p.id === selectedId) ?? providers[0];
-  const color = normalizeHex(selected?.colorHex ?? '');
 
   const load = useCallback(async (providerId: string) => {
     if (!providerId || inFlight.current.has(providerId)) return;
@@ -156,21 +154,11 @@ export function HomeClient({
         onOpenAccounts={() => setAccountsOpen(true)}
       />
 
-      <div className="flex items-center gap-2">
-        <Link
-          href="/loans"
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-opacity hover:opacity-80"
-          style={{ backgroundColor: alpha(color, 0.13), color }}
-        >
-          <History className="h-4 w-4" />
-          Loan history
-        </Link>
-        {owedEverywhere > 0 && (
-          <span className="rounded-xl bg-secondary px-3 py-2.5 text-xs text-muted-foreground">
-            You owe <span className="num font-semibold text-foreground">{money(owedEverywhere, currency)}</span> in all
-          </span>
-        )}
-      </div>
+      {owedEverywhere > 0 && (
+        <p className="rounded-xl bg-secondary px-3 py-2 text-center text-xs text-muted-foreground">
+          You owe <span className="num font-semibold text-foreground">{money(owedEverywhere, currency)}</span> in all
+        </p>
+      )}
 
       {providerPending.length > 0 && (
         <ul className="space-y-2">
