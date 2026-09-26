@@ -6,6 +6,8 @@ import { AlertCircle, CheckCircle2, Clock, Landmark, Loader2, RefreshCw } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { money } from '@/components/money';
+import { alpha, normalizeHex, readableOn } from '@/lib/brand';
+import { cn } from '@/lib/utils';
 
 interface Eligibility {
   eligible: boolean;
@@ -39,12 +41,16 @@ export function ApplyFlow({
   currency,
   requiresReview,
   documents,
+  colorHex,
 }: {
   productId: string;
   currency: string;
   requiresReview: boolean;
   documents: { key: string; name: string }[];
+  colorHex: string;
 }) {
+  const color = normalizeHex(colorHex);
+  const onColor = readableOn(color);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
@@ -130,9 +136,21 @@ export function ApplyFlow({
     const review = result.status === 'SUBMITTED';
     return (
       <section className="rounded-2xl border border-border bg-card p-5 text-center">
-        {disbursed ? <CheckCircle2 className="mx-auto h-10 w-10 text-success" /> : review ? <Clock className="mx-auto h-10 w-10 text-warning" /> : <AlertCircle className="mx-auto h-10 w-10 text-warning" />}
+        {disbursed ? (
+          <CheckCircle2 className="mx-auto h-10 w-10 text-success" />
+        ) : review ? (
+          <Clock className="mx-auto h-10 w-10 text-warning" />
+        ) : (
+          <AlertCircle className="mx-auto h-10 w-10 text-warning" />
+        )}
         <h2 className="mt-2 text-lg font-bold">
-          {disbursed ? 'Money sent!' : review ? 'Application received' : result.status === 'FAILED' ? 'The bank could not send the money' : 'Approved'}
+          {disbursed
+            ? 'Money sent!'
+            : review
+              ? 'Application received'
+              : result.status === 'FAILED'
+                ? 'The bank could not send the money'
+                : 'Approved'}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {disbursed
@@ -145,7 +163,7 @@ export function ApplyFlow({
                 ? 'Nothing is owed. Please try again later.'
                 : 'Your loan is being sent to your account. We will confirm by SMS.'}
         </p>
-        <Button asChild className="mt-4 w-full">
+        <Button asChild className="mt-4 w-full" style={{ backgroundColor: color, color: onColor }}>
           <Link href={result.loanId && result.status !== 'FAILED' ? `/loans/${result.loanId}` : `/applications/${result.applicationId}`}>
             {review && documents.length ? 'Upload documents' : 'View details'}
           </Link>
@@ -183,28 +201,75 @@ export function ApplyFlow({
   }
 
   const numeric = Number(amount);
-  const valid = Number.isFinite(numeric) && numeric >= eligibility.minAmount && numeric <= eligibility.maxAmount && /^\d+(\.\d{1,2})?$/.test(amount);
+  const valid =
+    Number.isFinite(numeric) && numeric >= eligibility.minAmount && numeric <= eligibility.maxAmount && /^\d+(\.\d{1,2})?$/.test(amount);
+  const span = eligibility.maxAmount - eligibility.minAmount;
+  // Round shortcuts to whole hundreds, the same step the slider moves in.
+  const shortcut = (share: number) => String(Math.round((eligibility.minAmount + span * share) / 100) * 100);
+  const shortcuts: [string, string][] = span >= 200
+    ? [
+        ['Least', String(eligibility.minAmount)],
+        ['Half', shortcut(0.5)],
+        ['Most', String(eligibility.maxAmount)],
+      ]
+    : [];
 
   return (
     <section className="space-y-4 rounded-2xl border border-border bg-card p-4">
       <div>
         <p className="text-sm font-semibold">How much do you need?</p>
-        <p className="text-xs text-muted-foreground">
-          You can borrow {money(eligibility.minAmount)} to {money(eligibility.maxAmount, currency)}.
+        <p className="num text-xs text-muted-foreground">
+          You can borrow {currency} {money(eligibility.minAmount)} to {money(eligibility.maxAmount)}.
         </p>
-        <Input className="num mt-2 h-12 text-lg font-semibold" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} aria-label="Amount" />
-        <input
-          type="range"
-          className="mt-3 w-full accent-[hsl(var(--primary))]"
-          min={eligibility.minAmount}
-          max={eligibility.maxAmount}
-          step={100}
-          value={valid ? numeric : eligibility.minAmount}
-          onChange={(e) => setAmount(e.target.value)}
-          aria-label="Amount slider"
-        />
-        {!valid && amount && <p className="text-xs text-destructive">Enter an amount within your limit.</p>}
-        {quoteError && <p className="text-xs text-destructive">{quoteError}</p>}
+
+        <div
+          className="mt-2 rounded-xl border px-3 py-2"
+          style={{ borderColor: alpha(color, 0.35), backgroundColor: alpha(color, 0.06) }}
+        >
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs font-medium text-muted-foreground">{currency}</span>
+            <Input
+              className="num h-11 flex-1 border-0 bg-transparent px-0 text-2xl font-bold shadow-none focus-visible:ring-0"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))}
+              aria-label="Amount"
+            />
+          </div>
+          <input
+            type="range"
+            className="mt-1 w-full"
+            style={{ accentColor: color }}
+            min={eligibility.minAmount}
+            max={eligibility.maxAmount}
+            step={100}
+            value={valid ? numeric : eligibility.minAmount}
+            onChange={(e) => setAmount(e.target.value)}
+            aria-label="Amount slider"
+          />
+        </div>
+
+        {shortcuts.length > 0 && (
+          <div className="mt-2 flex gap-2">
+            {shortcuts.map(([label, value]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setAmount(value)}
+                className={cn(
+                  'flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors',
+                  amount === value ? 'border-transparent' : 'border-border text-muted-foreground'
+                )}
+                style={amount === value ? { backgroundColor: color, color: onColor } : undefined}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!valid && amount && <p className="mt-1 text-xs text-destructive">Enter an amount within your limit.</p>}
+        {quoteError && <p className="mt-1 text-xs text-destructive">{quoteError}</p>}
       </div>
 
       {quote && valid && (
@@ -235,7 +300,9 @@ export function ApplyFlow({
               ))}
             </ul>
           )}
-          <p className="mt-2 text-[11px] text-muted-foreground">Repay early and you pay less interest — it is charged only for the days you have the money.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Repay early and you pay less interest — it is charged only for the days you have the money.
+          </p>
         </div>
       )}
 
@@ -248,15 +315,31 @@ export function ApplyFlow({
           </Button>
         ) : (
           <div className="mt-2 space-y-2">
-            {eligibility.accounts.map((a) => (
-              <label key={a.accountNumber} className="flex items-center gap-3 rounded-xl border border-border p-3 text-sm has-[:checked]:border-primary">
-                <input type="radio" name="account" checked={account === a.accountNumber} onChange={() => setAccount(a.accountNumber)} />
-                <span>
-                  <span className="num block font-mono">{a.accountNumber}</span>
-                  <span className="block text-xs text-muted-foreground">{a.accountName}</span>
-                </span>
-              </label>
-            ))}
+            {eligibility.accounts.map((a) => {
+              const chosen = account === a.accountNumber;
+              return (
+                <label
+                  key={a.accountNumber}
+                  className="flex items-center gap-3 rounded-xl border p-3 text-sm transition-colors"
+                  style={{
+                    borderColor: chosen ? color : undefined,
+                    backgroundColor: chosen ? alpha(color, 0.07) : undefined,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="account"
+                    checked={chosen}
+                    onChange={() => setAccount(a.accountNumber)}
+                    style={{ accentColor: color }}
+                  />
+                  <span className="min-w-0">
+                    <span className="num block font-semibold">{a.accountNumber}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{a.accountName}</span>
+                  </span>
+                </label>
+              );
+            })}
             <button type="button" onClick={loadAccounts} className="text-xs text-muted-foreground underline" disabled={loadingAccounts}>
               Refresh accounts from the bank
             </button>
@@ -271,14 +354,22 @@ export function ApplyFlow({
             <p className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{eligibility.terms.content}</p>
           </details>
           <label className="mt-2 flex items-start gap-2 text-xs">
-            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5" />I have read and accept the terms and conditions.
+            <input
+              type="checkbox"
+              checked={accepted}
+              onChange={(e) => setAccepted(e.target.checked)}
+              className="mt-0.5"
+              style={{ accentColor: color }}
+            />
+            I have read and accept the terms and conditions.
           </label>
         </div>
       )}
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       <Button
-        className="gold h-12 w-full text-base font-bold"
+        className="h-12 w-full text-base font-bold shadow-md transition-transform active:translate-y-px"
+        style={{ backgroundColor: color, color: onColor }}
         disabled={submitting || !valid || !account || (Boolean(eligibility.terms) && !accepted)}
         onClick={submit}
       >

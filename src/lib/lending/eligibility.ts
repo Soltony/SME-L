@@ -98,6 +98,14 @@ export interface EligibilityResult {
   limits: {
     productMax: Cents;
     tierMax: Cents | null;
+    /**
+     * The most this borrower is approved for on this product before what they
+     * already owe the provider is taken off — the product maximum narrowed by
+     * their score tier and their loan cycle. Zero when they qualify for
+     * nothing. This is the figure a borrower recognises as their limit;
+     * `maxAmount` is what is left of it to draw today.
+     */
+    ceiling: Cents;
     cyclePercent: number | null;
     /** Where the borrower sits in the loan cycle table, for reviewers. */
     cycleStage: string | null;
@@ -119,6 +127,7 @@ function refuse(product: ProductWithProvider | null, reason: string, extra: Part
     limits: {
       productMax: product ? toCents(product.maxAmount) : 0,
       tierMax: null,
+      ceiling: 0,
       cyclePercent: null,
       cycleStage: null,
       outstandingWithProvider: 0,
@@ -292,7 +301,7 @@ export async function evaluateEligibility(
         score,
         maxScore,
         breakdown,
-        limits: { productMax, tierMax: 0, cyclePercent: null, cycleStage: null, outstandingWithProvider: 0 },
+        limits: { productMax, tierMax: 0, ceiling: 0, cyclePercent: null, cycleStage: null, outstandingWithProvider: 0 },
       });
     }
     cap = Math.min(cap, tierMax);
@@ -313,7 +322,7 @@ export async function evaluateEligibility(
         score,
         maxScore,
         breakdown,
-        limits: { productMax, tierMax, cyclePercent: 0, cycleStage, outstandingWithProvider: 0 },
+        limits: { productMax, tierMax, ceiling: 0, cyclePercent: 0, cycleStage, outstandingWithProvider: 0 },
       });
     }
     cap = Math.floor((cap * percent) / 100);
@@ -331,8 +340,9 @@ export async function evaluateEligibility(
       .reduce((sum, a) => sum + toCents(a.requestedAmount), 0);
 
   // Whole currency units: nobody is offered a loan of 4,999.37.
-  const available = Math.floor(Math.max(0, Math.min(cap, productMax) - outstandingWithProvider) / 100) * 100;
-  const limits = { productMax, tierMax, cyclePercent: percent, cycleStage, outstandingWithProvider };
+  const ceiling = Math.min(cap, productMax);
+  const available = Math.floor(Math.max(0, ceiling - outstandingWithProvider) / 100) * 100;
+  const limits = { productMax, tierMax, ceiling, cyclePercent: percent, cycleStage, outstandingWithProvider };
 
   if (available < productMin) {
     return refuse(

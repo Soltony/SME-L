@@ -1,27 +1,38 @@
-import Link from 'next/link';
-import { AlertTriangle, ChevronRight, Clock } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
-import { productCard } from '@/lib/lending/product-view';
 import { buildLoanView } from '@/lib/lending/loan-view';
 import { borrowerPhoneNumbers } from '@/lib/lending/borrower-identity';
 import { visibleToBorrower } from '@/lib/lending/eligibility-lists';
-import { money } from '@/components/money';
-import { ProviderIcon } from '@/components/provider-icon';
+import { centsToNumber, toCents } from '@/lib/money';
+import { HomeClient, type HomeLoan, type PendingApplication } from '@/components/borrower/home-client';
+import type { RailProvider } from '@/components/borrower/provider-rail';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Home' };
 
-export default async function BorrowerHome() {
+/**
+ * The borrower's home screen.
+ *
+ * Everything that does not depend on scoring is rendered here — the lenders,
+ * the loans being carried, the applications waiting — so the screen is useful
+ * before any credit check has run. Limits and per-product decisions are the
+ * slow part (they read provisioned data and, for some lenders, the borrower's
+ * bank statement), so they are fetched per lender from the client once the
+ * shell is on screen.
+ */
+export default async function BorrowerHome({ searchParams }: { searchParams: Promise<{ lender?: string }> }) {
   const { borrower } = await requireBorrowerPage();
+  const { lender } = await searchParams;
   const numbers = await borrowerPhoneNumbers(prisma, borrower);
-  const [settings, products, loans, pending] = await Promise.all([
+
+  const [settings, providers, loanRows, applications, accounts] = await Promise.all([
     getSettings(),
-    prisma.loanProduct.findMany({
-      where: { status: 'ACTIVE', provider: { status: 'ACTIVE' }, ...visibleToBorrower(numbers) },
-      include: { provider: { select: { name: true, colorHex: true, icon: true, displayOrder: true } } },
-      orderBy: [{ provider: { displayOrder: 'asc' } }, { name: 'asc' }],
+    // A lender with nothing this borrower may see is not shown at all.
+    prisma.loanProvider.findMany({
+      where: { status: 'ACTIVE', products: { some: { status: 'ACTIVE', ...visibleToBorrower(numbers) } } },
+      select: { id: true, name: true, colorHex: true, icon: true },
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     }),
     prisma.loan.findMany({
       where: { borrowerId: borrower.id, status: { in: ['ACTIVE', 'PENDING_DISBURSEMENT'] } },
@@ -30,110 +41,39 @@ export default async function BorrowerHome() {
     }),
     prisma.loanApplication.findMany({
       where: { borrowerId: borrower.id, status: 'SUBMITTED' },
-      include: { product: { select: { name: true } } },
+      select: { id: true, providerId: true, requestedAmount: true, product: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.borrowerAccount.findMany({
+      where: { borrowerId: borrower.id },
+      select: { accountNumber: true, accountName: true },
+      orderBy: { verifiedAt: 'desc' },
     }),
   ]);
-  const currency = String(settings['platform.currency'] || 'ETB');
-  const views = loans.map((l) => buildLoanView(l));
-  const owed = views.reduce((sum, v) => sum + v.outstanding.total, 0);
+
+  const loans: HomeLoan[] = loanRows.map((row) => ({ ...buildLoanView(row), providerId: row.providerId }));
+  const rail: RailProvider[] = providers.map((provider) => ({
+    ...provider,
+    openLoans: loans.filter((loan) => loan.providerId === provider.id).length,
+  }));
+  const pending: PendingApplication[] = applications.map((application) => ({
+    id: application.id,
+    productName: application.product.name,
+    providerId: application.providerId,
+    amount: centsToNumber(toCents(application.requestedAmount)),
+  }));
 
   return (
-    <div className="space-y-6">
-      {borrower.isNpl && (
-        <div className="flex gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          One of your loans is seriously overdue. Repay it to be able to borrow again.
-        </div>
-      )}
-
-      {views.length > 0 && (
-        <section className="ink rounded-2xl p-4">
-          <p className="text-xs text-[hsl(var(--ink-muted))]">You owe today</p>
-          <p className="num mt-1 text-3xl font-bold">{money(owed, currency)}</p>
-          <ul className="mt-3 space-y-2">
-            {views.map((v) => (
-              <li key={v.id}>
-                <Link href={`/loans/${v.id}`} className="flex items-center justify-between rounded-xl bg-[hsl(var(--ink-raised))] px-3 py-2.5">
-                  <span>
-                    <span className="block text-sm font-semibold">{v.productName}</span>
-                    <span className="block text-xs text-[hsl(var(--ink-muted))]">
-                      {v.status === 'PENDING_DISBURSEMENT'
-                        ? 'Being sent to your account'
-                        : v.daysPastDue > 0
-                          ? `${v.daysPastDue} day(s) overdue`
-                          : v.nextInstallment
-                            ? `Next due ${v.nextInstallment.dueDate}`
-                            : `Due ${v.maturityDate}`}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1 text-sm">
-                    <span className="num">{money(v.outstanding.total)}</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {pending.length > 0 && (
-        <section className="space-y-2">
-          {pending.map((a) => (
-            <Link key={a.id} href={`/applications/${a.id}`} className="flex items-center justify-between rounded-xl border border-border bg-card p-3 text-sm">
-              <span className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-warning" />
-                {a.product.name} application under review
-              </span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            </Link>
-          ))}
-        </section>
-      )}
-
-      <section>
-        <h2 className="mb-2 text-base font-bold">Borrow for your business</h2>
-        {products.length === 0 && <p className="text-sm text-muted-foreground">No loan products are open right now.</p>}
-        <ul className="space-y-3">
-          {products.map((product) => {
-            const card = productCard(product);
-            return (
-              <li key={product.id}>
-                <Link href={`/products/${product.id}`} className="block rounded-2xl border border-border bg-card p-4 transition hover:border-primary/60">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                        <ProviderIcon icon={card.providerIcon} color={card.providerColor} className="h-4 w-4" />
-                        {card.providerName}
-                      </p>
-                      <h3 className="mt-0.5 font-semibold">{card.name}</h3>
-                      {card.requiresReview && <p className="text-[11px] text-muted-foreground">Reviewed by a loan officer</p>}
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{card.description}</p>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <p className="text-muted-foreground">Up to</p>
-                      <p className="num font-semibold">{money(card.maxAmount)}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Term</p>
-                      <p className="font-semibold">
-                        {card.durationDays} days{card.installmentCount > 1 ? ` · ${card.installmentCount}×` : ''}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Interest</p>
-                      <p className="font-semibold">{card.interest}</p>
-                    </div>
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-    </div>
+    <HomeClient
+      providers={rail}
+      loans={loans}
+      pending={pending}
+      accounts={accounts}
+      holderName={borrower.fullName ?? borrower.phoneNumber}
+      currency={String(settings['platform.currency'] || 'ETB')}
+      isNpl={borrower.isNpl}
+      supportPhone={String(settings['platform.supportPhone'] || '')}
+      initialProviderId={rail.some((p) => p.id === lender) ? (lender as string) : null}
+    />
   );
 }

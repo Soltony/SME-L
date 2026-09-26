@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { money } from '@/components/money';
+import { normalizeHex, readableOn } from '@/lib/brand';
 import { requestWalletApproval } from '@/lib/superapp-bridge';
 
 type Stage = 'idle' | 'starting' | 'waiting' | 'done' | 'failed';
@@ -16,13 +17,18 @@ export function RepayPanel({
   payoff,
   dueNow,
   isTest,
+  colorHex,
 }: {
   loanId: string;
   currency: string;
   payoff: number;
   dueNow: number;
   isTest: boolean;
+  /** The lender's colour, so paying looks like part of the card above it. */
+  colorHex: string;
 }) {
+  const color = normalizeHex(colorHex);
+  const onColor = readableOn(color);
   const router = useRouter();
   const [amount, setAmount] = useState((dueNow > 0 ? dueNow : payoff).toFixed(2));
   const [stage, setStage] = useState<Stage>('idle');
@@ -92,7 +98,8 @@ export function RepayPanel({
   const valid = /^\d+(\.\d{1,2})?$/.test(amount) && numeric >= 1 && numeric <= payoff;
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-4">
+    // `scroll-mt` clears the sticky app bar when a Repay link jumps straight here.
+    <section id="repay" className="scroll-mt-20 rounded-2xl border border-border bg-card p-4">
       <h2 className="font-semibold">Make a payment</h2>
       {stage === 'done' ? (
         <p className="mt-3 flex items-center gap-2 text-sm text-success">
@@ -113,7 +120,12 @@ export function RepayPanel({
           <Input className="num mt-3 h-12 text-lg" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} aria-label="Amount" />
           {!valid && <p className="mt-1 text-xs text-destructive">Enter between 1.00 and {money(payoff, currency)}.</p>}
           {message && <p className={`mt-2 text-sm ${stage === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`}>{message}</p>}
-          <Button className="gold mt-3 h-12 w-full text-base font-bold" disabled={!valid || stage === 'starting' || stage === 'waiting'} onClick={pay}>
+          <Button
+            className="mt-3 h-12 w-full text-base font-bold shadow-md transition-transform active:translate-y-px"
+            style={{ backgroundColor: color, color: onColor }}
+            disabled={!valid || stage === 'starting' || stage === 'waiting'}
+            onClick={pay}
+          >
             {stage === 'starting' || stage === 'waiting' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wallet className="mr-2 h-4 w-4" />}
             {stage === 'waiting' ? 'Waiting for wallet approval…' : `Pay ${valid ? money(numeric, currency) : ''}`}
           </Button>

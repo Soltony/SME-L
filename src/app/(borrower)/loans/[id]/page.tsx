@@ -5,7 +5,9 @@ import prisma from '@/lib/prisma';
 import { requireBorrowerPage } from '@/lib/borrower-page';
 import { buildLoanView, buildRepaymentView } from '@/lib/lending/loan-view';
 import { maskAccount } from '@/lib/format';
-import { StatusBadge } from '@/components/admin/status-badge';
+import { brandStyle, brandTokens, honeycomb } from '@/lib/brand';
+import { StatusBadge, statusLabel } from '@/components/admin/status-badge';
+import { ProviderIcon } from '@/components/provider-icon';
 import { money } from '@/components/money';
 import { RepayPanel } from './repay-panel';
 
@@ -20,13 +22,18 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
     include: {
       installments: true,
       product: { select: { name: true } },
-      provider: { select: { name: true } },
+      provider: { select: { name: true, colorHex: true, icon: true } },
       repayments: { orderBy: { receivedAt: 'desc' }, take: 30 },
     },
   });
   if (!loan) notFound();
   const v = buildLoanView(loan);
   const c = v.currency;
+  const { foreground } = brandTokens(loan.provider.colorHex);
+  const repaidShare = v.principal > 0 ? Math.min(100, Math.round((v.lifetime.principalPaid / v.principal) * 100)) : 0;
+  // On the card the arrears matter more than the status word, so an overdue
+  // loan says so here rather than reading "Active" beside a red warning.
+  const chip = v.status === 'ACTIVE' && v.daysPastDue > 0 ? 'Overdue' : statusLabel(v.status);
 
   return (
     <div className="space-y-4">
@@ -34,43 +41,78 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
         <ChevronLeft className="h-4 w-4" /> My loans
       </Link>
 
-      <section className="ink rounded-2xl p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs text-[hsl(var(--ink-muted))]">
-              {v.providerName} · {v.loanNumber}
-            </p>
-            <h1 className="text-lg font-bold">{v.productName}</h1>
+      {/* The lender's colour, carried over from the home screen's credit card. */}
+      <section className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(loan.provider.colorHex)}>
+        <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
+        <div className="relative">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-[11px] opacity-80">
+                <ProviderIcon icon={loan.provider.icon} className="h-3.5 w-3.5" />
+                <span className="truncate">
+                  {v.providerName} · {v.loanNumber}
+                </span>
+              </p>
+              <h1 className="truncate text-lg font-bold">{v.productName}</h1>
+            </div>
+            <span
+              className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+              style={{ backgroundColor: 'var(--brand-chip)' }}
+            >
+              {chip}
+            </span>
           </div>
-          <StatusBadge status={v.status} />
+
+          {v.status === 'ACTIVE' ? (
+            <>
+              <p className="mt-3 text-xs opacity-80">To clear this loan today</p>
+              <p className="num text-3xl font-bold tracking-tight">{money(v.outstanding.total, c)}</p>
+              {v.daysPastDue > 0 ? (
+                <p className="mt-1 text-sm font-semibold">
+                  {v.daysPastDue} day{v.daysPastDue === 1 ? '' : 's'} overdue — pay {money(v.amountDueNow, c)} to catch up
+                </p>
+              ) : v.nextInstallment ? (
+                <p className="mt-1 text-sm opacity-85">
+                  Next: {money(v.nextInstallment.amount)} principal plus charges by{' '}
+                  <span className="whitespace-nowrap">{v.nextInstallment.dueDate}</span>
+                </p>
+              ) : null}
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--brand-line)' }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.max(repaidShare, 2)}%`, backgroundColor: foreground, opacity: 0.85 }}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] opacity-80">
+                {repaidShare}% of {money(v.principal, c)} principal repaid
+              </p>
+            </>
+          ) : v.status === 'PENDING_DISBURSEMENT' ? (
+            <p className="mt-3 text-sm">
+              We are sending {money(v.principal, c)} to account {maskAccount(v.disbursementAccount)}. You will get an SMS when it
+              arrives.
+            </p>
+          ) : v.status === 'PAID_OFF' ? (
+            <p className="mt-3 text-sm">
+              Fully repaid. Thank you!{v.credit > 0 ? ` We hold ${money(v.credit, c)} you overpaid and will refund it.` : ''}
+            </p>
+          ) : v.status === 'DISBURSEMENT_FAILED' ? (
+            <p className="mt-3 text-sm">The bank could not send this loan. Nothing is owed.</p>
+          ) : (
+            <p className="mt-3 text-sm">This loan is closed.</p>
+          )}
         </div>
-        {v.status === 'ACTIVE' ? (
-          <>
-            <p className="mt-3 text-xs text-[hsl(var(--ink-muted))]">To clear this loan today</p>
-            <p className="num text-3xl font-bold">{money(v.outstanding.total, c)}</p>
-            {v.daysPastDue > 0 ? (
-              <p className="mt-1 text-sm font-semibold text-[hsl(var(--warning))]">
-                {v.daysPastDue} day(s) overdue — pay {money(v.amountDueNow, c)} to catch up
-              </p>
-            ) : v.nextInstallment ? (
-              <p className="mt-1 text-sm text-[hsl(var(--ink-muted))]">
-                Next: {money(v.nextInstallment.amount)} principal plus charges by {v.nextInstallment.dueDate}
-              </p>
-            ) : null}
-          </>
-        ) : v.status === 'PENDING_DISBURSEMENT' ? (
-          <p className="mt-3 text-sm">We are sending {money(v.principal, c)} to account {maskAccount(v.disbursementAccount)}. You will get an SMS when it arrives.</p>
-        ) : v.status === 'PAID_OFF' ? (
-          <p className="mt-3 text-sm">Fully repaid. Thank you!{v.credit > 0 ? ` We hold ${money(v.credit, c)} you overpaid and will refund it.` : ''}</p>
-        ) : v.status === 'DISBURSEMENT_FAILED' ? (
-          <p className="mt-3 text-sm">The bank could not send this loan. Nothing is owed.</p>
-        ) : (
-          <p className="mt-3 text-sm">This loan is closed.</p>
-        )}
       </section>
 
       {v.status === 'ACTIVE' && (
-        <RepayPanel loanId={v.id} currency={c} payoff={v.outstanding.total} dueNow={v.amountDueNow} isTest={Boolean(session.isTest)} />
+        <RepayPanel
+          loanId={v.id}
+          currency={c}
+          payoff={v.outstanding.total}
+          dueNow={v.amountDueNow}
+          isTest={Boolean(session.isTest)}
+          colorHex={loan.provider.colorHex}
+        />
       )}
 
       {v.status === 'ACTIVE' && (
@@ -89,8 +131,14 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
                 <dd className="num">{money(value as number)}</dd>
               </div>
             ))}
+            <div className="flex justify-between border-t border-border pt-1 font-semibold">
+              <dt>Total</dt>
+              <dd className="num">{money(v.outstanding.total, c)}</dd>
+            </div>
           </dl>
-          <p className="mt-2 text-[11px] text-muted-foreground">Payments settle penalties first, then fees, interest and tax, then principal.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Payments settle penalties first, then fees, interest and tax, then principal.
+          </p>
         </section>
       )}
 
@@ -127,7 +175,9 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
                     <span className="block text-xs text-muted-foreground">Receipt {rv.receiptNo}</span>
                   </span>
                   <span className="text-right">
-                    <span className={`num block ${rv.status === 'REVERSED' ? 'line-through text-muted-foreground' : ''}`}>{money(rv.amount)}</span>
+                    <span className={`num block ${rv.status === 'REVERSED' ? 'text-muted-foreground line-through' : ''}`}>
+                      {money(rv.amount)}
+                    </span>
                     {rv.status === 'REVERSED' && <span className="text-[11px] text-destructive">Reversed</span>}
                   </span>
                 </li>

@@ -99,6 +99,28 @@
   .pb-safe {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
   }
+  /*
+   * A surface painted in a provider's brand colour. The colour itself, the two
+   * gradient stops and a readable foreground arrive as custom properties from
+   * `brandStyle()` — see src/lib/brand.ts — so one class serves every provider
+   * and the text stays legible on a navy lender and a yellow one alike.
+   */
+  .brand-surface {
+    background-image: linear-gradient(145deg, var(--brand-from) 0%, var(--brand) 45%, var(--brand-to) 100%);
+    color: var(--brand-fg);
+  }
+  /* The provider rail scrolls sideways; a visible bar would sit over the names. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Fades the edges of the rail so a half-scrolled provider reads as "more". */
+  .rail-fade {
+    mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  }
 }
 
 @keyframes shake {

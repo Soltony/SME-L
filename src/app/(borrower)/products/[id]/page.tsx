@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ChevronLeft } from 'lucide-react';
+import { CalendarDays, ChevronLeft, Coins, Percent, ShieldCheck } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
@@ -8,7 +8,9 @@ import { productCard } from '@/lib/lending/product-view';
 import { parsePenaltyRules } from '@/lib/lending/terms';
 import { borrowerPhoneNumbers } from '@/lib/lending/borrower-identity';
 import { visibleToBorrower } from '@/lib/lending/eligibility-lists';
+import { alpha, brandStyle, brandTokens, honeycomb } from '@/lib/brand';
 import { ProviderIcon } from '@/components/provider-icon';
+import { money } from '@/components/money';
 import { ApplyFlow } from './apply-flow';
 
 export const dynamic = 'force-dynamic';
@@ -30,61 +32,79 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   // A list-only product is not found at all by someone who is not on the list.
   const product = await prisma.loanProduct.findFirst({
     where: { id, ...visibleToBorrower(numbers) },
-    include: { provider: { select: { name: true, colorHex: true, icon: true, status: true } } },
+    include: { provider: { select: { id: true, name: true, colorHex: true, icon: true, status: true } } },
   });
   if (!product || product.status !== 'ACTIVE' || product.provider.status !== 'ACTIVE') notFound();
   const card = productCard(product);
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const penalties = parsePenaltyRules(product.penaltyRules);
+  const { foreground } = brandTokens(card.providerColor);
+
+  const facts: { icon: typeof Coins; label: string; value: string }[] = [
+    {
+      icon: CalendarDays,
+      label: 'Term',
+      value: `${card.durationDays} days${card.installmentCount > 1 ? `, ${card.installmentCount} installments` : ', one repayment'}`,
+    },
+    { icon: Coins, label: 'Service fee', value: card.serviceFee },
+    { icon: Percent, label: 'Interest', value: card.interest },
+    { icon: ShieldCheck, label: 'Decision', value: card.requiresReview ? 'Reviewed by an officer' : 'Instant' },
+  ];
 
   return (
     <div className="space-y-4">
-      <Link href="/home" className="inline-flex items-center text-sm text-muted-foreground">
+      <Link href={`/home?lender=${card.providerId}`} className="inline-flex items-center text-sm text-muted-foreground">
         <ChevronLeft className="h-4 w-4" /> Back
       </Link>
-      <header>
-        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <ProviderIcon icon={card.providerIcon} color={card.providerColor} className="h-4 w-4" />
-          {card.providerName}
-        </p>
-        <h1 className="text-xl font-bold">{card.name}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{card.description}</p>
+
+      <header className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(card.providerColor)}>
+        <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
+        <div className="relative">
+          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide opacity-85">
+            <ProviderIcon icon={card.providerIcon} className="h-3.5 w-3.5" />
+            {card.providerName}
+          </p>
+          <h1 className="mt-0.5 text-xl font-bold tracking-tight">{card.name}</h1>
+          <p className="num mt-2 text-sm opacity-90">
+            {currency} {money(card.minAmount)} – {money(card.maxAmount)}
+          </p>
+          {card.description && <p className="mt-2 text-sm opacity-90">{card.description}</p>}
+        </div>
       </header>
 
-      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-border bg-card p-4 text-sm">
-        <div>
-          <dt className="text-xs text-muted-foreground">Term</dt>
-          <dd className="font-semibold">
-            {card.durationDays} days{card.installmentCount > 1 ? `, ${card.installmentCount} installments` : ', one repayment'}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Service fee</dt>
-          <dd className="font-semibold">{card.serviceFee}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Interest</dt>
-          <dd className="font-semibold">{card.interest}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Decision</dt>
-          <dd className="font-semibold">{card.requiresReview ? 'Reviewed by an officer' : 'Instant'}</dd>
-        </div>
-        {penalties.length > 0 && (
-          <div className="col-span-2">
-            <dt className="text-xs text-muted-foreground">If you pay late</dt>
-            <dd>
-              <ul className="list-inside list-disc text-xs">
-                {penalties.map((rule, i) => (
-                  <li key={i}>{describePenalty(rule)}</li>
-                ))}
-              </ul>
-            </dd>
+      <dl className="grid grid-cols-2 gap-2">
+        {facts.map(({ icon: Icon, label, value }) => (
+          <div key={label} className="rounded-xl border border-border bg-card p-3">
+            <dt className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" style={{ color: card.providerColor }} />
+              {label}
+            </dt>
+            <dd className="mt-0.5 text-sm font-semibold">{value}</dd>
           </div>
-        )}
+        ))}
       </dl>
 
-      <ApplyFlow productId={product.id} currency={currency} requiresReview={product.requiresReview} documents={card.requiredDocuments} />
+      {penalties.length > 0 && (
+        <section
+          className="rounded-xl border p-3 text-xs"
+          style={{ borderColor: alpha(card.providerColor, 0.3), backgroundColor: alpha(card.providerColor, 0.07) }}
+        >
+          <h2 className="text-sm font-semibold">If you pay late</h2>
+          <ul className="mt-1 list-inside list-disc text-muted-foreground">
+            {penalties.map((rule, i) => (
+              <li key={i}>{describePenalty(rule)}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <ApplyFlow
+        productId={product.id}
+        currency={currency}
+        requiresReview={product.requiresReview}
+        documents={card.requiredDocuments}
+        colorHex={card.providerColor}
+      />
     </div>
   );
 }
