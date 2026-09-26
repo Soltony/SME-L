@@ -69,12 +69,12 @@ export function CreditCard({
         </button>
       </div>
       {loading ? (
-        <Skeleton className={cn('mt-1 h-7 w-28', isLight ? 'bg-black/10' : 'bg-white/20', align === 'right' && 'ml-auto')} />
+        <Skeleton className={cn('mt-1 h-6 w-28', isLight ? 'bg-black/10' : 'bg-white/20', align === 'right' && 'ml-auto')} />
       ) : (
         // Both figures share the width of a phone, so the currency is a small
         // mark rather than a word, and a long amount steps down a size instead
         // of colliding with the one opposite it.
-        <p className={cn('num mt-0.5 font-bold tracking-tight', money(value).length > 10 ? 'text-lg' : 'text-xl')}>
+        <p className={cn('num font-bold leading-tight tracking-tight', money(value).length > 10 ? 'text-base' : 'text-lg')}>
           {visible ? (
             <>
               <span className="mr-1 align-baseline text-[0.62em] font-semibold opacity-70">{currency}</span>
@@ -96,7 +96,12 @@ export function CreditCard({
     >
       <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
 
-      <div className="relative p-4">
+      {/*
+       * Kept short on purpose: on a phone the card shares the first screen with
+       * the product list, and the borrower should see at least two products
+       * without scrolling.
+       */}
+      <div className="relative px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <button
             type="button"
@@ -104,21 +109,23 @@ export function CreditCard({
             className="min-w-0 flex-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-current"
           >
             <p className="truncate text-[11px] uppercase tracking-wide opacity-75">{holderName}</p>
-            <p className="num flex items-center gap-1 text-lg font-bold tracking-wide">
+            <p className="num flex items-center gap-1 text-base font-bold leading-snug tracking-wide">
               <span className="truncate">{accountNumber ?? 'No bank account yet'}</span>
+              {accountCount > 1 && (
+                <span className="shrink-0 text-[11px] font-medium tracking-normal opacity-70">· {accountCount} accounts</span>
+              )}
               <ChevronRight className="h-4 w-4 shrink-0 opacity-70" />
             </p>
-            {accountCount > 1 && <p className="text-[11px] opacity-70">{accountCount} accounts · tap to see them</p>}
           </button>
           <span
-            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+            className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
             style={{ backgroundColor: 'var(--brand-chip)' }}
           >
             {statusLabel}
           </span>
         </div>
 
-        <div className="my-3 h-px" style={{ backgroundColor: 'var(--brand-line)' }} />
+        <div className="my-2.5 h-px" style={{ backgroundColor: 'var(--brand-line)' }} />
 
         <div className="flex items-end justify-between gap-3">
           {figure('Max Limit', maxLimit, showLimit, () => setShowLimit((v) => !v), 'left')}
@@ -126,8 +133,8 @@ export function CreditCard({
         </div>
 
         {!loading && maxLimit > 0 && (
-          <div className="mt-3">
-            <div className="h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--brand-line)' }}>
+          <div className="mt-2.5 flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--brand-line)' }}>
               <div
                 className="h-full rounded-full transition-[width] duration-500"
                 // Dark ink on a pale brand reads much heavier than white on a
@@ -135,13 +142,9 @@ export function CreditCard({
                 style={{ width: `${free}%`, backgroundColor: foreground, opacity: isLight ? 0.5 : 0.85 }}
               />
             </div>
-            <p className="mt-1.5 text-[11px] opacity-75">
-              {free === 100
-                ? 'Your whole limit is free to borrow.'
-                : free === 0
-                  ? 'Your limit is fully used. Repay to borrow again.'
-                  : `${free}% of your limit is still free.`}
-            </p>
+            <span className="num shrink-0 text-[11px] font-medium opacity-75">
+              {free === 0 ? 'Fully used' : `${free}% free`}
+            </span>
           </div>
         )}
       </div>

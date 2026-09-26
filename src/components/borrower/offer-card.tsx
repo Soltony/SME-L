@@ -63,19 +63,32 @@ export function OfferCard({
           </div>
         </div>
 
-        {offer.eligible ? (
-          <Link
-            href={`/products/${offer.id}`}
-            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg px-4 text-sm font-semibold shadow-sm transition-transform active:translate-y-px"
-            style={{ backgroundColor: color, color: readableOn(color) }}
+        {/* "More" sits under the button, not on a row of its own, to keep the card short. */}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {offer.eligible ? (
+            <Link
+              href={`/products/${offer.id}`}
+              className="inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-semibold shadow-sm transition-transform active:translate-y-px"
+              style={{ backgroundColor: color, color: readableOn(color) }}
+            >
+              Apply
+            </Link>
+          ) : (
+            <span className="inline-flex h-9 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground">
+              Locked
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls={detailId}
+            className="flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            Apply
-          </Link>
-        ) : (
-          <span className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground">
-            Locked
-          </span>
-        )}
+            {open ? 'Less' : 'More'}
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
+          </button>
+        </div>
       </div>
 
       {!offer.eligible && (
@@ -85,19 +98,8 @@ export function OfferCard({
         </p>
       )}
 
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-controls={detailId}
-        className="mt-2 ml-auto flex items-center gap-1 rounded px-1 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {open ? 'Less' : 'More'}
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
-      </button>
-
       {open && (
-        <dl id={detailId} className="mt-1 space-y-1 rounded-xl bg-secondary/60 p-3 text-xs">
+        <dl id={detailId} className="mt-3 space-y-1 rounded-xl bg-secondary/60 p-3 text-xs">
           {details.map(([label, value]) => (
             <div key={label} className="flex items-baseline justify-between gap-3">
               <dt className="text-muted-foreground">{label}</dt>

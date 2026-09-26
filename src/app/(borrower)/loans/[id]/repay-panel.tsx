@@ -98,8 +98,8 @@ export function RepayPanel({
   const valid = /^\d+(\.\d{1,2})?$/.test(amount) && numeric >= 1 && numeric <= payoff;
 
   return (
-    // `scroll-mt` clears the sticky app bar when a Repay link jumps straight here.
-    <section id="repay" className="scroll-mt-20 rounded-2xl border border-border bg-card p-4">
+    // `scroll-mt` leaves a little breathing room when a Repay link jumps straight here.
+    <section id="repay" className="scroll-mt-4 rounded-2xl border border-border bg-card p-4">
       <h2 className="font-semibold">Make a payment</h2>
       {stage === 'done' ? (
         <p className="mt-3 flex items-center gap-2 text-sm text-success">
