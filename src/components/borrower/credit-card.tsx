@@ -90,8 +90,10 @@ export function CreditCard({
   );
 
   return (
+    // Edge to edge: it runs the full width of the screen, past the page's side
+    // gutter, while its content stays in line with everything below it.
     <section
-      className="brand-surface relative overflow-hidden rounded-2xl shadow-lg"
+      className="brand-surface relative -mx-4 overflow-hidden shadow-lg"
       style={brandStyle(colorHex, { lightText: true })}
       aria-label={`Your credit with ${providerName}`}
     >
