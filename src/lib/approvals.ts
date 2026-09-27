@@ -7,7 +7,7 @@ import { hasPermission } from './permissions';
 import { centsToDecimal, parseUserAmount, toCents } from './money';
 import { invalidateSettingsCache, SETTINGS_BY_KEY, validateSettingValue } from './settings';
 import { provisionChartOfAccounts } from './accounting/ledger';
-import { productSchema, providerSchema, taxRuleSchema, termsSchema } from './lending/catalog';
+import { documentTypeSchema, documentTypeUpdateSchema, productSchema, providerSchema, taxRuleSchema, termsSchema } from './lending/catalog';
 import { scoringModelSchema, tierAmountIssues, tiersSchema } from './lending/scoring';
 import { modelFieldIssues } from './lending/scoring-fields';
 import { providerFieldCatalogue } from './lending/field-catalogue';
@@ -77,7 +77,11 @@ function handler<T>(h: Handler<T>): Handler<T> {
   return h;
 }
 
-/** The product's provider, once its customer list is confirmed to belong to that provider. */
+/**
+ * The product's provider, once its customer list and the documents it asks for
+ * are confirmed to belong to that provider — a product can never make a
+ * borrower send another provider's document, or one nobody reviews any more.
+ */
 async function providerOfProduct(tx: TxClient, p: z.infer<typeof productSchema>) {
   if (p.eligibilityListId) {
     const list = await tx.eligibilityList.findUnique({ where: { id: p.eligibilityListId }, select: { providerId: true } });
@@ -85,7 +89,33 @@ async function providerOfProduct(tx: TxClient, p: z.infer<typeof productSchema>)
       throw new ApiError(400, "Choose one of this provider's customer lists.", 'eligibilityListId');
     }
   }
+  if (p.documentTypeIds.length) {
+    const types = await tx.documentType.findMany({
+      where: { id: { in: p.documentTypeIds } },
+      select: { id: true, name: true, scope: true, providerId: true, status: true },
+    });
+    for (const id of p.documentTypeIds) {
+      const type = types.find((t) => t.id === id);
+      if (!type || type.scope !== 'PRODUCT' || type.providerId !== p.providerId) {
+        throw new ApiError(400, "Choose documents from this provider's document types.", 'documentTypeIds');
+      }
+      if (type.status !== 'ACTIVE') {
+        throw new ApiError(400, `${type.name} is no longer in use. Untick it, or reactivate it under Document types.`, 'documentTypeIds');
+      }
+    }
+  }
   return p.providerId;
+}
+
+/** Refuses a second document type of the same name for the same owner. */
+async function assertDocumentTypeNameFree(tx: TxClient, name: string, providerId: string | null, exceptId: string | null) {
+  const clash = await tx.documentType.findFirst({
+    where: { name, providerId, ...(exceptId ? { NOT: { id: exceptId } } : {}) },
+    select: { id: true },
+  });
+  if (clash) {
+    throw new ApiError(409, providerId ? 'This provider already has a document with that name.' : 'The bank already has a document with that name.', 'name');
+  }
 }
 
 async function providerOfLoan(tx: TxClient, loanId: string) {
@@ -211,6 +241,46 @@ export const CHANGE_HANDLERS = {
           })),
         });
       }
+    },
+  }),
+
+  /**
+   * A new kind of document. A bank document is asked of every borrower from
+   * the moment it is approved, so it can stop everyone applying until they
+   * provide it; a provider's document is asked for only by products that list it.
+   */
+  'DocumentType.CREATE': handler({
+    label: 'Create document type',
+    module: 'document-types',
+    schema: documentTypeSchema,
+    providerOf: async (tx, p) => {
+      if (!p.providerId) return null;
+      const provider = await tx.loanProvider.findUnique({ where: { id: p.providerId }, select: { id: true } });
+      if (!provider) throw new ApiError(400, 'Choose the provider this document belongs to.', 'providerId');
+      return p.providerId;
+    },
+    apply: async (tx, p) => {
+      await assertDocumentTypeNameFree(tx, p.name, p.providerId, null);
+      const created = await tx.documentType.create({ data: p });
+      return created.id;
+    },
+  }),
+
+  'DocumentType.UPDATE': handler({
+    label: 'Update document type',
+    module: 'document-types',
+    schema: documentTypeUpdateSchema,
+    providerOf: async (tx, _p, id) => {
+      const type = await tx.documentType.findUnique({ where: { id: id ?? '' }, select: { providerId: true } });
+      if (!type) throw new ApiError(404, 'Document type not found.');
+      return type.providerId;
+    },
+    apply: async (tx, p, id) => {
+      const type = await tx.documentType.findUnique({ where: { id: id ?? '' }, select: { id: true, providerId: true } });
+      if (!type) throw new ApiError(404, 'Document type not found.');
+      await assertDocumentTypeNameFree(tx, p.name, type.providerId, type.id);
+      // Documents already on file keep their review; this changes what is asked for next.
+      await tx.documentType.update({ where: { id: type.id }, data: p });
     },
   }),
 
@@ -486,7 +556,7 @@ function productColumns(p: z.infer<typeof productSchema>) {
     allowConcurrentLoans: p.allowConcurrentLoans,
     requiresReview: p.requiresReview,
     requiresScoring: p.requiresScoring,
-    requiredDocuments: JSON.stringify(p.requiredDocuments),
+    documentTypeIds: JSON.stringify(p.documentTypeIds),
     eligibilityFilter: p.eligibilityFilter ? JSON.stringify(p.eligibilityFilter) : null,
     eligibilityListId: p.eligibilityListId,
     cycleConfig: p.cycleConfig ? JSON.stringify(p.cycleConfig) : null,

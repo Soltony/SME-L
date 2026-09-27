@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { productFormValues } from '@/lib/lending/catalog';
 import { listSummaries } from '@/lib/lending/eligibility-lists';
+import { productFormDocumentOptions } from '@/lib/lending/document-type-options';
 import { PageHeader } from '@/components/admin/page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProductForm } from '@/components/admin/product-form';
@@ -51,7 +52,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     allowConcurrentLoans: values.allowConcurrentLoans,
     requiresReview: values.requiresReview,
     requiresScoring: values.requiresScoring,
-    requiredDocuments: values.requiredDocuments,
+    documentTypeIds: values.documentTypeIds,
     eligibilityFilter: Object.entries(values.eligibilityFilter ?? {}).map(([field, v]) => ({ field, values: v })),
     eligibilityListId: values.eligibilityListId ?? '',
     cycleEnabled: Boolean(values.cycleConfig),
@@ -70,7 +71,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         }),
   };
   const canUpdate = hasPermission(user, 'products', 'update');
-  const lists = await listSummaries({ providerId: product.providerId });
+  const [lists, docOptions] = await Promise.all([
+    listSummaries({ providerId: product.providerId }),
+    productFormDocumentOptions([product.providerId]),
+  ]);
 
   return (
     <>
@@ -107,6 +111,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           initial={initial}
           providers={[product.provider]}
           lists={lists}
+          documentTypes={docOptions.documentTypes}
+          bankDocuments={docOptions.bankDocuments}
           canCreateList={hasPermission(user, 'products', 'create')}
           canSubmit={canUpdate}
         />

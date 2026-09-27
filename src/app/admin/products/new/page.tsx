@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/admin/page-header';
 import { ProductForm } from '@/components/admin/product-form';
 import { blankProduct } from '@/components/admin/product-form-values';
 import { listSummaries } from '@/lib/lending/eligibility-lists';
+import { productFormDocumentOptions } from '@/lib/lending/document-type-options';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'New product' };
@@ -18,6 +19,7 @@ export default async function NewProductPage() {
     select: { id: true, name: true },
     orderBy: { name: 'asc' },
   });
+  const docOptions = await productFormDocumentOptions(providers.map((p) => p.id));
 
   return (
     <>
@@ -33,6 +35,8 @@ export default async function NewProductPage() {
           initial={blankProduct(providers[0].id)}
           providers={providers}
           lists={await listSummaries({ providerId: { in: providers.map((p) => p.id) } })}
+          documentTypes={docOptions.documentTypes}
+          bankDocuments={docOptions.bankDocuments}
           canCreateList
           canSubmit
         />

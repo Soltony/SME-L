@@ -4,7 +4,9 @@ import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
 import { formatDateTime, toLocalPhone } from '@/lib/format';
 import { money } from '@/components/money';
+import { borrowerView, profileChecklist } from '@/lib/lending/borrower-documents';
 import { ProfileActions } from './profile-actions';
+import { ProfileDocuments } from './profile-documents';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Profile' };
@@ -23,11 +25,12 @@ function initials(name: string | null, phone: string) {
 
 export default async function ProfilePage() {
   const { borrower } = await requireBorrowerPage();
-  const [accounts, settings, grouped, repaid] = await Promise.all([
+  const [accounts, settings, grouped, repaid, documents] = await Promise.all([
     prisma.borrowerAccount.findMany({ where: { borrowerId: borrower.id }, orderBy: { verifiedAt: 'desc' } }),
     getSettings(),
     prisma.loan.groupBy({ by: ['status'], where: { borrowerId: borrower.id }, _count: true }),
     prisma.loan.aggregate({ where: { borrowerId: borrower.id }, _sum: { principalAmount: true } }),
+    profileChecklist(borrower.id),
   ]);
   const count = (status: string) => grouped.find((l) => l.status === status)?._count ?? 0;
   const support = String(settings['platform.supportPhone'] || '');
@@ -67,6 +70,8 @@ export default async function ProfilePage() {
         </dl>
         <p className="mt-2 text-center text-[11px] text-[hsl(var(--ink-muted))]">Amounts in {currency}.</p>
       </section>
+
+      <ProfileDocuments items={documents.map(borrowerView)} />
 
       <ProfileActions accounts={accounts.map((a) => ({ accountNumber: a.accountNumber, accountName: a.accountName }))} />
 

@@ -7,6 +7,7 @@ import { isTemplateActive, notifyBorrower } from './notifications';
 import { runAccrualBatch } from './lending/loan-service';
 import { processDisbursementQueue } from './lending/disbursement';
 import { expireStalePaymentIntents } from './lending/payments';
+import { sendDocumentExpiryReminders } from './lending/borrower-documents';
 
 /**
  * One maintenance pass. Every step is idempotent, so a missed run is caught
@@ -15,7 +16,7 @@ import { expireStalePaymentIntents } from './lending/payments';
  *  - wallet payments nobody confirmed are marked expired;
  *  - queued disbursements are sent, and interrupted ones flagged for review;
  *  - every active loan is accrued to today (a no-op after the first run of the day);
- *  - due-date reminders go out once per business day, from the configured hour.
+ *  - due-date and document-expiry reminders go out once per business day, from the configured hour.
  *
  * Driven by `/api/cron/tick` or `npm run run:worker`. The previous SME worker
  * ran each job on its own 24-hour sleep, so a restart at the wrong moment
@@ -30,6 +31,7 @@ export interface MaintenanceSummary {
   disbursements: Awaited<ReturnType<typeof processDisbursementQueue>> | null;
   accrual: { processed: number; posted: number; failed: number; nplFlagged: number } | null;
   reminders: number | null;
+  documentReminders: number | null;
   skipped?: string;
 }
 
@@ -94,6 +96,7 @@ export async function runMaintenance(): Promise<MaintenanceSummary> {
     disbursements: null,
     accrual: null,
     reminders: null,
+    documentReminders: null,
   };
   if (running) return { ...summary, skipped: 'A maintenance pass is already running in this process.' };
   running = true;
@@ -119,13 +122,17 @@ export async function runMaintenance(): Promise<MaintenanceSummary> {
     if (businessHour() >= reminderHour && (await claimDailyJob('reminders', day))) {
       summary.reminders = await sendDueReminders(day);
     }
+    if (businessHour() >= reminderHour && (await claimDailyJob('documentReminders', day))) {
+      summary.documentReminders = await sendDocumentExpiryReminders(day);
+    }
 
     const changed =
       summary.expiredPayments > 0 ||
       (summary.disbursements?.attempted ?? 0) > 0 ||
       (summary.disbursements?.markedUnknown ?? 0) > 0 ||
       (summary.accrual?.processed ?? 0) > 0 ||
-      (summary.reminders ?? 0) > 0;
+      (summary.reminders ?? 0) > 0 ||
+      (summary.documentReminders ?? 0) > 0;
     if (changed) {
       await createAuditLog({
         actorId: 'SYSTEM',

@@ -4,7 +4,7 @@ import { acquireAppLock, locks } from '@/lib/db-lock';
 import { createAuditLogInTx } from '@/lib/audit-log';
 import { centsToDecimal, formatMoney, toCents, type Cents } from '@/lib/money';
 import { nextNumber } from '@/lib/numbering';
-import { missingDocuments, parseRequiredDocuments } from '@/lib/documents';
+import { requireApprovedDocuments } from './borrower-documents';
 import { notifyBorrower } from '@/lib/notifications';
 import { getSettings } from '@/lib/settings';
 import { evaluateEligibility } from './eligibility';
@@ -50,6 +50,9 @@ export async function submitApplication(input: SubmitApplicationInput): Promise<
     });
     const eligibility = await evaluateEligibility(tx, fresh, input.productId);
     if (!eligibility.eligible) throw new ApiError(409, eligibility.reason);
+    // Documents come before every application, instant ones included, and are
+    // checked under the same lock so what is recorded is what was approved.
+    const documentSnapshot = await requireApprovedDocuments(tx, fresh.id, input.productId, 'BORROWER');
 
     if (input.amount < eligibility.minAmount || input.amount > eligibility.maxAmount) {
       throw new ApiError(
@@ -101,6 +104,7 @@ export async function submitApplication(input: SubmitApplicationInput): Promise<
         score: eligibility.score,
         eligibleAmount: centsToDecimal(eligibility.maxAmount),
         disbursementAccount: account.accountNumber,
+        documentSnapshot: JSON.stringify(documentSnapshot),
         status: 'SUBMITTED',
       },
     });
@@ -186,24 +190,14 @@ export async function approveApplication(
     await acquireAppLock(tx, locks.borrower(header.borrowerId));
     const application = await tx.loanApplication.findUniqueOrThrow({
       where: { id: applicationId },
-      include: {
-        borrower: true,
-        product: true,
-        documents: { select: { documentKey: true } },
-        answers: { select: { documentKey: true } },
-      },
+      include: { borrower: true, product: true },
     });
     if (application.status !== 'SUBMITTED') {
       throw new ApiError(409, `This application is already ${application.status.toLowerCase()}.`);
     }
 
-    const missing = missingDocuments(parseRequiredDocuments(application.product.requiredDocuments), {
-      files: application.documents.map((d) => d.documentKey),
-      answers: application.answers.map((a) => a.documentKey),
-    });
-    if (missing.length) {
-      throw new ApiError(409, `Documents still missing: ${missing.map((d) => d.name).join(', ')}.`);
-    }
+    // As of now: a document may have expired, or the product may ask for more, since they applied.
+    const documentSnapshot = await requireApprovedDocuments(tx, application.borrowerId, application.productId, 'REVIEWER');
 
     const eligibility = await evaluateEligibility(tx, application.borrower, application.productId, {
       excludeApplicationId: application.id,
@@ -229,6 +223,8 @@ export async function approveApplication(
         reviewedById: reviewer.id,
         reviewedByName: reviewer.fullName,
         reviewedAt: new Date(),
+        // The loan is granted now, on the documents approved now.
+        documentSnapshot: JSON.stringify(documentSnapshot),
       },
     });
     const { loan } = await createLoanFromApplicationInTx(tx, application.id, amount, actor);

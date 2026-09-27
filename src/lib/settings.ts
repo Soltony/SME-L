@@ -176,6 +176,18 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     unit: '24-hour clock',
   },
   {
+    key: 'notifications.documentExpiryDays',
+    label: 'Reminder before a document expires',
+    description:
+      'Borrowers are reminded this many days before an approved document expires, so they can upload the renewed one before it stops counting. Sent from the earliest reminder hour. 0 turns these reminders off.',
+    category: 'notifications',
+    type: 'number',
+    default: 14,
+    min: 0,
+    max: 90,
+    unit: 'days',
+  },
+  {
     key: 'security.maxFailedLogins',
     label: 'Failed sign-ins before lockout',
     description: 'Consecutive wrong passwords that lock a staff account.',

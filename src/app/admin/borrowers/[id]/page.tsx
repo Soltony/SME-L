@@ -7,8 +7,9 @@ import { getSettings } from '@/lib/settings';
 import { toCents } from '@/lib/money';
 import { formatDateTime, maskAccount } from '@/lib/format';
 import { buildLoanView } from '@/lib/lending/loan-view';
+import { borrowerKnownToProvider, visibleDocumentsWhere } from '@/lib/lending/borrower-documents';
 import { PageHeader } from '@/components/admin/page-header';
-import { StatusBadge } from '@/components/admin/status-badge';
+import { documentStatusKey, StatusBadge } from '@/components/admin/status-badge';
 import { EmptyRow, TableCard } from '@/components/admin/data-shell';
 import { ActionDialog } from '@/components/admin/action-dialog';
 import { money, moneyCents } from '@/components/money';
@@ -39,7 +40,8 @@ export default async function BorrowerDetailPage({ params }: { params: Promise<{
     },
   });
   if (!borrower) notFound();
-  if (user.providerId && borrower.applications.length === 0) notFound();
+  // A provider's staff see borrowers who applied to it or sent it a document.
+  if (user.providerId && !(await borrowerKnownToProvider(prisma, borrower.id, user.providerId))) notFound();
 
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const dataRows = await prisma.borrowerDataRow.findMany({
@@ -47,6 +49,12 @@ export default async function BorrowerDetailPage({ params }: { params: Promise<{
     include: { config: { select: { name: true, provider: { select: { name: true } } } } },
   });
   const loans = borrower.loans.map((l) => buildLoanView(l));
+  // Current versions only: superseded and withdrawn ones are on each document's own page.
+  const documents = await prisma.borrowerDocument.findMany({
+    where: { borrowerId: borrower.id, status: { in: ['PENDING', 'APPROVED', 'REJECTED'] }, ...visibleDocumentsWhere(user) },
+    include: { documentType: { select: { name: true, provider: { select: { name: true } } } } },
+    orderBy: [{ documentTypeId: 'asc' }, { version: 'desc' }],
+  });
   const canBlock = hasPermission(user, 'borrowers', 'update') && !user.providerId;
 
   return (
@@ -142,6 +150,40 @@ export default async function BorrowerDetailPage({ params }: { params: Promise<{
           )}
         </section>
       </div>
+
+      <h2 className="mb-2 mt-6 font-semibold">Documents</h2>
+      <TableCard>
+        <table className="w-full min-w-[720px] text-sm">
+          <thead className="border-b border-border bg-secondary/50 text-left">
+            <tr>
+              <th className="px-4 py-2 font-semibold">Document</th>
+              <th className="px-4 py-2 font-semibold">Version</th>
+              <th className="px-4 py-2 font-semibold">Expires</th>
+              <th className="px-4 py-2 font-semibold">Submitted</th>
+              <th className="px-4 py-2 font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {documents.length === 0 && <EmptyRow colSpan={5} message="No documents provided." />}
+            {documents.map((d) => (
+              <tr key={d.id}>
+                <td className="px-4 py-2">
+                  <Link href={`/admin/documents/${d.id}`} className="text-primary hover:underline">
+                    {d.documentType.name}
+                  </Link>
+                  <p className="text-xs text-muted-foreground">{d.documentType.provider?.name ?? 'Bank'}</p>
+                </td>
+                <td className="px-4 py-2">v{d.version}</td>
+                <td className="px-4 py-2 text-xs">{d.expiresOn ? d.expiresOn.toISOString().slice(0, 10) : '—'}</td>
+                <td className="px-4 py-2 text-xs">{formatDateTime(d.submittedAt)}</td>
+                <td className="px-4 py-2">
+                  <StatusBadge status={documentStatusKey(d.status)} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableCard>
 
       <h2 className="mb-2 mt-6 font-semibold">Loans</h2>
       <TableCard>

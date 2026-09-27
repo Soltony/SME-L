@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma';
 import { ApiError, handle, isBorrowerFailure, requireBorrower } from '@/lib/api';
 import { centsToNumber, toCents } from '@/lib/money';
-import { parseRequiredDocuments } from '@/lib/documents';
+import { parseDocumentSnapshot } from '@/lib/lending/document-requirements';
 import { cancelApplication } from '@/lib/lending/applications';
 
 export const dynamic = 'force-dynamic';
@@ -14,10 +14,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const application = await prisma.loanApplication.findFirst({
       where: { id, borrowerId: ctx.borrower.id },
       include: {
-        product: { select: { name: true, requiredDocuments: true } },
+        product: { select: { name: true } },
         provider: { select: { name: true } },
-        documents: { select: { documentKey: true, fileName: true, uploadedAt: true } },
-        answers: { select: { documentKey: true, value: true, answeredAt: true } },
       },
     });
     if (!application) throw new ApiError(404, 'Application not found.');
@@ -31,9 +29,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       approvedAmount: application.approvedAmount ? centsToNumber(toCents(application.approvedAmount)) : null,
       reviewNote: application.status === 'REJECTED' ? application.reviewNote : null,
       loanId: application.loanId,
-      requiredDocuments: parseRequiredDocuments(application.product.requiredDocuments),
-      documents: application.documents,
-      answers: application.answers,
+      // Which of their documents the decision relied on — names and versions, nothing more.
+      documents: parseDocumentSnapshot(application.documentSnapshot).map((d) => ({ name: d.name, version: d.version })),
       createdAt: application.createdAt.toISOString(),
     };
   });

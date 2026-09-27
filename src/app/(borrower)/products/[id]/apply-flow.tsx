@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, CheckCircle2, Clock, Landmark, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, FileCheck2, Landmark, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { money } from '@/components/money';
+import { DocumentList } from '@/components/borrower/document-list';
+import type { BorrowerDocumentItem } from '@/lib/lending/document-requirements';
 import { alpha, normalizeHex, readableOn } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +18,9 @@ interface Eligibility {
   maxAmount: number;
   terms: { id: string; version: number; content: string; alreadyAccepted: boolean } | null;
   accounts: { accountNumber: string; accountName: string | null }[];
+  /** What this product asks for, and where the borrower stands on each. */
+  documents: BorrowerDocumentItem[];
+  documentsReady: boolean;
 }
 
 interface Quote {
@@ -40,13 +45,11 @@ export function ApplyFlow({
   productId,
   currency,
   requiresReview,
-  documents,
   colorHex,
 }: {
   productId: string;
   currency: string;
   requiresReview: boolean;
-  documents: { key: string; name: string }[];
   colorHex: string;
 }) {
   const color = normalizeHex(colorHex);
@@ -156,16 +159,14 @@ export function ApplyFlow({
           {disbursed
             ? `${money(Number(amount), currency)} has been sent to your account.`
             : review
-              ? documents.length
-                ? 'Upload the requested documents so a loan officer can review your application.'
-                : 'A loan officer will review your application shortly.'
+              ? 'A loan officer will review your application shortly.'
               : result.status === 'FAILED'
                 ? 'Nothing is owed. Please try again later.'
                 : 'Your loan is being sent to your account. We will confirm by SMS.'}
         </p>
         <Button asChild className="mt-4 w-full" style={{ backgroundColor: color, color: onColor }}>
           <Link href={result.loanId && result.status !== 'FAILED' ? `/loans/${result.loanId}` : `/applications/${result.applicationId}`}>
-            {review && documents.length ? 'Upload documents' : 'View details'}
+            View details
           </Link>
         </Button>
       </section>
@@ -214,8 +215,33 @@ export function ApplyFlow({
       ]
     : [];
 
+  const outstanding = eligibility.documents.filter((d) => !d.satisfied);
+  const waiting = outstanding.filter((d) => d.status === 'PENDING').length;
+
   return (
     <section className="space-y-4 rounded-2xl border border-border bg-card p-4">
+      {eligibility.documents.length > 0 && (
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold">
+            <FileCheck2 className="h-4 w-4" style={{ color }} />
+            Documents
+          </p>
+          {eligibility.documentsReady ? (
+            <p className="text-xs text-muted-foreground">All approved — you can apply.</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You qualify for up to {currency} {money(eligibility.maxAmount)}.{' '}
+              {outstanding.length === waiting
+                ? 'You can apply as soon as your documents are approved. We will text you.'
+                : `Provide ${outstanding.length - waiting === 1 ? 'the document' : 'the documents'} below to unlock it. Each is checked once and reused for your next loans.`}
+            </p>
+          )}
+          <div className="mt-2">
+            <DocumentList items={eligibility.documentsReady ? eligibility.documents : outstanding} color={color} onChanged={load} />
+          </div>
+        </div>
+      )}
+
       <div>
         <p className="text-sm font-semibold">How much do you need?</p>
         <p className="num text-xs text-muted-foreground">
@@ -367,10 +393,13 @@ export function ApplyFlow({
       )}
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
+      {!eligibility.documentsReady && (
+        <p className="text-center text-xs text-muted-foreground">Apply once your documents are approved.</p>
+      )}
       <Button
         className="h-12 w-full text-base font-bold shadow-md transition-transform active:translate-y-px"
         style={{ backgroundColor: color, color: onColor }}
-        disabled={submitting || !valid || !account || (Boolean(eligibility.terms) && !accepted)}
+        disabled={submitting || !eligibility.documentsReady || !valid || !account || (Boolean(eligibility.terms) && !accepted)}
         onClick={submit}
       >
         {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

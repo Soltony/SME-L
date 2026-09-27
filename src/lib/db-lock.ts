@@ -37,6 +37,8 @@ export const locks = {
   providerFunds: (providerId: string) => `sme:funds:${providerId}`,
   loan: (loanId: string) => `sme:loan:${loanId}`,
   change: (changeId: string) => `sme:change:${changeId}`,
+  /** A borrower's document versions. Always taken on its own, never alongside another lock. */
+  documents: (borrowerId: string) => `sme:documents:${borrowerId}`,
 };
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { acceptAttribute, DocumentError, missingDocuments, parseRequiredDocuments, storeDocument } from './documents';
-import { requiredDocumentSchema } from './lending/catalog';
+import { acceptAttribute, DocumentError, parseRequiredDocuments, storeDocument } from './documents';
+import { documentTypeSchema } from './lending/catalog';
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
@@ -20,10 +20,24 @@ describe('parseRequiredDocuments', () => {
   });
 });
 
-describe('requiredDocumentSchema', () => {
-  it('defaults the type, and refuses one that is not offered', () => {
-    expect(requiredDocumentSchema.parse({ key: 'licence', name: 'Licence' }).type).toBe('FILE');
-    expect(requiredDocumentSchema.safeParse({ key: 'licence', name: 'Licence', type: 'WORD' }).success).toBe(false);
+describe('documentTypeSchema', () => {
+  it('defaults what the borrower provides, and refuses a kind that is not offered', () => {
+    expect(documentTypeSchema.parse({ scope: 'GLOBAL', name: 'National ID' }).kind).toBe('FILE');
+    expect(documentTypeSchema.safeParse({ scope: 'GLOBAL', name: 'National ID', kind: 'WORD' }).success).toBe(false);
+  });
+
+  it('keeps a bank document free of any provider, whatever the form sent', () => {
+    expect(documentTypeSchema.parse({ scope: 'GLOBAL', name: 'TIN', kind: 'TEXT', providerId: 'p1' }).providerId).toBeNull();
+  });
+
+  it('needs a provider for a provider document', () => {
+    const result = documentTypeSchema.safeParse({ scope: 'PRODUCT', name: 'Trade licence' });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0].path).toEqual(['providerId']);
+    expect(documentTypeSchema.parse({ scope: 'PRODUCT', name: 'Trade licence', providerId: 'p1', requiresExpiry: 'true' })).toMatchObject({
+      providerId: 'p1',
+      requiresExpiry: true,
+    });
   });
 });
 
@@ -45,21 +59,5 @@ describe('acceptAttribute', () => {
   it('offers only the files the type allows', () => {
     expect(acceptAttribute('PDF')).toBe('.pdf,application/pdf');
     expect(acceptAttribute('IMAGE')).toBe('.png,image/png,.jpg,.jpeg,image/jpeg');
-  });
-});
-
-describe('missingDocuments', () => {
-  const required = [
-    { key: 'licence', type: 'FILE' as const },
-    { key: 'tin', type: 'TEXT' as const },
-  ];
-
-  it('counts files for file documents and answers for typed ones', () => {
-    expect(missingDocuments(required, { files: ['licence'], answers: ['tin'] })).toEqual([]);
-    expect(missingDocuments(required, { files: [], answers: ['tin'] }).map((d) => d.key)).toEqual(['licence']);
-  });
-
-  it('asks again when a document changed kind after it was provided', () => {
-    expect(missingDocuments(required, { files: ['tin'], answers: ['licence'] }).map((d) => d.key)).toEqual(['licence', 'tin']);
   });
 });

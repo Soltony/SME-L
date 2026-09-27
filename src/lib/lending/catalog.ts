@@ -3,7 +3,8 @@ import type { LoanProduct, LoanProvider } from '@prisma/client';
 import { boolish, parsePenaltyRules, productPricingSchema } from './terms';
 import { DEFAULT_PROVIDER_ICON, isValidProviderIcon, MAX_PROVIDER_ICON_URI_LENGTH, PROVIDER_ICON_ERROR } from '../provider-icon';
 import { loanCycleSchema, parseLoanCycle } from './scoring';
-import { DOCUMENT_KIND_KEYS, parseRequiredDocuments } from '../documents';
+import { DOCUMENT_KIND_KEYS } from '../document-kinds';
+import { parseDocumentTypeIds } from './document-requirements';
 
 /** Validation for providers, products, taxes and terms — shared by maker and checker. */
 
@@ -41,16 +42,36 @@ export const providerSchema = z.object({
 
 export type ProviderInput = z.infer<typeof providerSchema>;
 
-export const requiredDocumentSchema = z.object({
-  key: z
-    .string()
-    .trim()
-    .regex(/^[a-z0-9_]{2,40}$/, 'Keys use lowercase letters, digits and underscores.'),
-  name: text(100).min(2),
-  description: text(300).optional(),
-  /** What the borrower provides: a photo, a PDF, either, or a typed answer. */
-  type: z.enum(DOCUMENT_KIND_KEYS).default('FILE'),
+/** What a document type may change after it is created. */
+export const documentTypeUpdateSchema = z.object({
+  name: text(100).min(2, 'Name the document.'),
+  description: text(300).default(''),
+  requiresExpiry: boolish.default(false),
+  status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
+  sortOrder: z.coerce.number().int().min(0).max(999).default(0),
 });
+
+/**
+ * A kind of document borrowers provide. Its owner (the bank, or one provider)
+ * and what the borrower provides (a photo, a PDF, either, or a typed answer)
+ * are fixed once created: changing either would change who approved the
+ * documents already on file, or what they were approved as.
+ */
+export const documentTypeSchema = documentTypeUpdateSchema
+  .extend({
+    scope: z.enum(['GLOBAL', 'PRODUCT']),
+    providerId: z
+      .string()
+      .trim()
+      .max(40)
+      .nullish()
+      .transform((v) => v || null),
+    kind: z.enum(DOCUMENT_KIND_KEYS).default('FILE'),
+  })
+  .transform((t) => ({ ...t, providerId: t.scope === 'GLOBAL' ? null : t.providerId }))
+  .refine((t) => t.scope === 'GLOBAL' || t.providerId, { message: 'Choose the provider this document belongs to.', path: ['providerId'] });
+
+export type DocumentTypeInput = z.infer<typeof documentTypeSchema>;
 
 export const productSchema = productPricingSchema.and(
   z.object({
@@ -64,7 +85,12 @@ export const productSchema = productPricingSchema.and(
     allowConcurrentLoans: boolish.default(false),
     requiresReview: boolish.default(false),
     requiresScoring: boolish.default(true),
-    requiredDocuments: z.array(requiredDocumentSchema).max(20).default([]),
+    /** The provider's document types this product asks for, on top of the bank's. */
+    documentTypeIds: z
+      .array(z.string().trim().min(1).max(40))
+      .max(20, 'A product can ask for at most 20 documents.')
+      .default([])
+      .transform((ids) => [...new Set(ids)]),
     eligibilityFilter: z
       .record(z.string().trim().min(1).max(100), z.string().trim().min(1).max(500))
       .nullable()
@@ -175,7 +201,7 @@ export function productFormValues(p: LoanProduct) {
     allowConcurrentLoans: p.allowConcurrentLoans,
     requiresReview: p.requiresReview,
     requiresScoring: p.requiresScoring,
-    requiredDocuments: parseRequiredDocuments(p.requiredDocuments),
+    documentTypeIds: parseDocumentTypeIds(p.documentTypeIds),
     eligibilityFilter,
     eligibilityListId: p.eligibilityListId,
     cycleConfig: parseLoanCycle(p.cycleConfig),

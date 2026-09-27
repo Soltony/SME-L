@@ -1,6 +1,7 @@
 # SME Lending
 
-A lending platform for small-business credit: products and pricing, credit scoring, applications,
+A lending platform for small-business credit: products and pricing, credit scoring, borrower
+documents reviewed before anyone applies, applications,
 disbursement through core banking, accrual, repayment through a wallet gateway, and a
 double-entry ledger that reconciles against the loan book.
 
@@ -54,6 +55,7 @@ and disburse without a bank. Every variable is documented in [.env.example](.env
 | `npm run run:worker` | Maintenance loop; `-- --once` for a single pass |
 | `npm run ledger:verify` | Reconcile the books; exits non-zero if anything is off |
 | `npm run db:backfill-phones` | Record each borrower's current number in their phone history (safe to re-run) |
+| `npm run db:migrate-documents` | Move products' old free-text document lists onto the document catalogue (safe to re-run) |
 
 ### Daily maintenance
 
@@ -123,6 +125,19 @@ than one holder; `lending.linkPhoneByVerifiedAccount` turns it off for operators
 link only through approval. If a second record was created before the link, it is folded into the
 first, keeping any restriction from either.
 
+**Documents come before the application.** Borrowers provide documents once, to their profile,
+and a product can be applied for only when every document it asks for is approved and in date —
+instant products included, so a score-only product still pays out the moment the borrower applies.
+There are two kinds. The bank's documents (**Document Types → bank**) are asked of every borrower
+and reviewed only by bank staff, meaning accounts with no provider. A provider's documents are asked
+for by the products that tick them and reviewed only by that provider's own staff. Each upload is a
+new version: a replacement waits for review while the approved version keeps counting, so updating
+a licence never locks a borrower out, and nothing is overwritten. Types can ask for an expiry date;
+an expired document stops counting and the borrower is texted beforehand (**Settings →
+Notifications**). The check runs inside the same lock as eligibility, and the application records
+exactly which approved versions the loan was granted on. Defining document types goes through
+maker-checker; reviewing a borrower's document is a decision like reviewing an application.
+
 **Money moves in a fixed order.** A payment settles penalties, then service fee, interest, tax and
 principal, oldest installment first. Anything left over becomes a credit the borrower can be
 refunded — it is never discarded.
@@ -142,7 +157,7 @@ account equals the loan sub-ledger it summarises.
 from SQL Server sequences. Two callbacks for one payment, or two applications against one limit,
 resolve to exactly one.
 
-**Maker-checker.** Pricing, settings, capital, manual repayments, reversals, write-offs, refunds and
+**Maker-checker.** Pricing, document types, settings, capital, manual repayments, reversals, write-offs, refunds and
 disbursement resolutions exist only as requests until a second person approves them. There is no
 direct-write path around it, the maker can never approve their own request, and the payload is
 re-validated at the moment it is applied.

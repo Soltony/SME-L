@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { handle, isBorrowerFailure, requireBorrower, tooManyRequests } from '@/lib/api';
 import { evaluateEligibilityNow } from '@/lib/lending/eligibility';
+import { borrowerView, productChecklist } from '@/lib/lending/borrower-documents';
 import { prepareCoreBankingForProduct } from '@/lib/lending/core-banking-profile';
 import { centsToNumber } from '@/lib/money';
 import { consumeRateLimit } from '@/lib/rate-limit';
@@ -18,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     await prepareCoreBankingForProduct(ctx.borrower.id, id);
     const result = await evaluateEligibilityNow(ctx.borrower, id);
     const product = await prisma.loanProduct.findUnique({ where: { id }, select: { providerId: true } });
-    const [terms, accepted, accounts] = await Promise.all([
+    const [terms, accepted, accounts, documents] = await Promise.all([
       product
         ? prisma.termsVersion.findFirst({
             where: { providerId: product.providerId, isActive: true },
@@ -32,6 +33,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         select: { accountNumber: true, accountName: true },
         orderBy: { verifiedAt: 'desc' },
       }),
+      // Asked only of a borrower who qualifies: nobody should gather papers for a loan they cannot have.
+      result.eligible ? productChecklist(prisma, ctx.borrower.id, id) : Promise.resolve([]),
     ]);
     // The score breakdown is for staff; the borrower gets the decision and the limit.
     return {
@@ -39,6 +42,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       reason: result.reason,
       minAmount: centsToNumber(result.minAmount),
       maxAmount: centsToNumber(result.maxAmount),
+      documents: documents.map(borrowerView),
+      documentsReady: documents.every((d) => d.satisfied),
       terms: terms ? { ...terms, alreadyAccepted: accepted.some((a) => a.termsId === terms.id) } : null,
       accounts,
     };

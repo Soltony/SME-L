@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { requireBorrowerPage } from '@/lib/borrower-page';
-import { parseRequiredDocuments } from '@/lib/documents';
+import { describeOutstanding, outstandingDocuments, productChecklist } from '@/lib/lending/borrower-documents';
 import { centsToNumber, toCents } from '@/lib/money';
 import { formatDateTime } from '@/lib/format';
 import { brandStyle, brandTokens, honeycomb } from '@/lib/brand';
@@ -21,14 +21,14 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
   const application = await prisma.loanApplication.findFirst({
     where: { id, borrowerId: borrower.id },
     include: {
-      product: { select: { name: true, requiredDocuments: true } },
+      product: { select: { name: true } },
       provider: { select: { name: true, colorHex: true, icon: true } },
-      documents: { select: { documentKey: true, fileName: true, uploadedAt: true } },
-      answers: { select: { documentKey: true, value: true } },
     },
   });
   if (!application) notFound();
-  const required = parseRequiredDocuments(application.product.requiredDocuments);
+  // A document can lapse while an application waits; the officer cannot approve until it is current again.
+  const missing =
+    application.status === 'SUBMITTED' ? outstandingDocuments(await productChecklist(prisma, borrower.id, application.productId)) : [];
   const { foreground } = brandTokens(application.provider.colorHex);
 
   return (
@@ -77,13 +77,16 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
         </p>
       )}
 
-      <ApplicationActions
-        applicationId={application.id}
-        open={application.status === 'SUBMITTED'}
-        required={required.map((d) => ({ key: d.key, name: d.name, description: d.description ?? null, type: d.type }))}
-        uploaded={application.documents.map((d) => ({ key: d.documentKey, fileName: d.fileName }))}
-        answers={application.answers.map((a) => ({ key: a.documentKey, value: a.value }))}
-      />
+      {missing.length > 0 && (
+        <p className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
+          Before this can be approved: {describeOutstanding(missing)}.{' '}
+          <Link href="/profile" className="font-medium text-primary underline">
+            Go to My documents
+          </Link>
+        </p>
+      )}
+
+      <ApplicationActions applicationId={application.id} open={application.status === 'SUBMITTED'} />
     </div>
   );
 }

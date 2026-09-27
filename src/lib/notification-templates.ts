@@ -39,6 +39,30 @@ export const TEMPLATE_DEFINITIONS = [
     bodyAm: '{platform}: ማመልከቻ ቁጥር {applicationNo} ተቀባይነት አላገኘም። {reason}',
   },
   {
+    code: 'DOCUMENT_APPROVED',
+    name: 'Document approved',
+    trigger: 'A reviewer approves a document the borrower provided.',
+    placeholders: ['document'],
+    bodyEn: '{platform}: your {document} has been approved.',
+    bodyAm: '{platform}: ያቀረቡት {document} ጸድቋል።',
+  },
+  {
+    code: 'DOCUMENT_REJECTED',
+    name: 'Document not accepted',
+    trigger: 'A reviewer rejects a document. Any approved earlier version stays in use.',
+    placeholders: ['document', 'reason'],
+    bodyEn: '{platform}: your {document} was not accepted. {reason} Please upload it again in the app.',
+    bodyAm: '{platform}: ያቀረቡት {document} ተቀባይነት አላገኘም። {reason} እባክዎ በመተግበሪያው እንደገና ያስገቡ።',
+  },
+  {
+    code: 'DOCUMENT_EXPIRING',
+    name: 'Document expiring',
+    trigger: 'Once a day, the set number of days before an approved document expires (Settings → Notifications).',
+    placeholders: ['document', 'expiryDate'],
+    bodyEn: '{platform}: your {document} expires on {expiryDate}. Upload the renewed one in the app to keep borrowing.',
+    bodyAm: '{platform}: ያቀረቡት {document} በ{expiryDate} ጊዜው ያበቃል። መበደርዎን ለመቀጠል የታደሰውን በመተግበሪያው ያስገቡ።',
+  },
+  {
     code: 'LOAN_DISBURSED',
     name: 'Loan disbursed',
     trigger: 'Core banking confirms the loan amount reached the borrower’s account.',
@@ -103,6 +127,8 @@ export const SAMPLE_VALUES: Record<string, string> = {
   account: '********7890',
   dueDate: '15 Oct 2026',
   reason: 'Monthly turnover is below the product minimum.',
+  document: 'Trade licence',
+  expiryDate: '30 Nov 2026',
 };
 
 const PLACEHOLDER = /\{(\w+)\}/g;

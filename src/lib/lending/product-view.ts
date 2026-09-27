@@ -4,7 +4,6 @@ import { ApiError } from '@/lib/errors';
 import { centsToNumber, toCents, type Cents } from '@/lib/money';
 import { dayToIso, today } from '@/lib/business-date';
 import { getSettings } from '@/lib/settings';
-import { parseRequiredDocuments } from '@/lib/documents';
 import { quoteLoan } from './engine';
 import { buildTerms, compileTerms, parsePenaltyRules } from './terms';
 
@@ -25,7 +24,6 @@ export interface ProductCard {
   interest: string;
   hasPenalties: boolean;
   requiresReview: boolean;
-  requiredDocuments: { key: string; name: string }[];
 }
 
 export function describeFee(type: string, value: string) {
@@ -60,7 +58,6 @@ export function productCard(
     interest: describeInterest(p.interestType, p.interestValue.toString(), p.interestBasis),
     hasPenalties: parsePenaltyRules(p.penaltyRules).length > 0,
     requiresReview: p.requiresReview,
-    requiredDocuments: parseRequiredDocuments(p.requiredDocuments).map((d) => ({ key: d.key, name: d.name })),
   };
 }
 

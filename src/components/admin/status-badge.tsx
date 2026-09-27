@@ -33,12 +33,22 @@ const MAP: Record<string, { label: string; variant: Variant }> = {
   BLOCKED: { label: 'Blocked', variant: 'destructive' },
   DISABLED: { label: 'Disabled', variant: 'outline' },
   NPL: { label: 'NPL', variant: 'destructive' },
+  // Borrower documents — see documentStatusKey
+  DOC_PENDING: { label: 'Waiting for review', variant: 'warning' },
+  DOC_APPROVED: { label: 'Approved', variant: 'success' },
+  SUPERSEDED: { label: 'Replaced', variant: 'outline' },
+  WITHDRAWN: { label: 'Withdrawn', variant: 'outline' },
   // Installments
   PAID: { label: 'Paid', variant: 'success' },
   OVERDUE: { label: 'Overdue', variant: 'destructive' },
   DUE_TODAY: { label: 'Due today', variant: 'warning' },
   UPCOMING: { label: 'Upcoming', variant: 'secondary' },
 };
+
+/** Document statuses share names with other records; these keys read right for a document. */
+export function documentStatusKey(status: string) {
+  return status === 'PENDING' ? 'DOC_PENDING' : status === 'APPROVED' ? 'DOC_APPROVED' : status;
+}
 
 export function statusLabel(status: string) {
   return MAP[status]?.label ?? status;

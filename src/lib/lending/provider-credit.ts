@@ -7,6 +7,7 @@ import { borrowerPhoneNumbers } from './borrower-identity';
 import { visibleToBorrower } from './eligibility-lists';
 import { evaluateEligibility } from './eligibility';
 import { providerScoresOnCoreBanking, refreshCoreBankingProfile } from './core-banking-profile';
+import { productChecklists } from './borrower-documents';
 
 /**
  * One provider's whole offer to one borrower: what they may borrow, from which
@@ -43,6 +44,10 @@ export interface ProductOffer {
   reason: string;
   /** Principal owed to this provider, plus amounts awaiting a decision. */
   committed: number;
+  /** Documents this product asks for that are not yet approved; applying waits for them. */
+  documentsNeeded: number;
+  /** Of those, how many are already sent and waiting for review. */
+  documentsWaiting: number;
 }
 
 export interface ProviderCredit {
@@ -99,10 +104,12 @@ export async function providerCredit(
   const currency = String(settings['platform.currency'] || 'ETB');
 
   await prepareCoreBanking(borrower.id, providerId, products);
+  const checklists = await productChecklists(prisma, borrower.id, products);
 
   const offers = await Promise.all(
     products.map(async (product): Promise<ProductOffer> => {
       const result = await evaluateEligibility(prisma, borrower, product.id);
+      const outstanding = (checklists.get(product.id) ?? []).filter((item) => !item.satisfied);
       return {
         id: product.id,
         name: product.name,
@@ -121,6 +128,8 @@ export async function providerCredit(
         eligible: result.eligible,
         reason: result.reason,
         committed: centsToNumber(result.limits.outstandingWithProvider),
+        documentsNeeded: outstanding.length,
+        documentsWaiting: outstanding.filter((item) => item.status === 'PENDING').length,
       };
     })
   );

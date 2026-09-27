@@ -14,6 +14,7 @@
     "run:worker": "tsx -r tsconfig-paths/register src/worker.ts",
     "ledger:verify": "tsx -r tsconfig-paths/register src/verify-ledger.ts",
     "db:backfill-phones": "tsx -r tsconfig-paths/register src/backfill-borrower-phones.ts",
+    "db:migrate-documents": "tsx -r tsconfig-paths/register src/migrate-documents.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

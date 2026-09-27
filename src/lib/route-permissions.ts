@@ -37,6 +37,8 @@ export const ADMIN_ROUTES: AdminRoute[] = [
   { path: '/admin/disbursements', label: 'Disbursements' },
   { path: '/admin/repayments', label: 'Repayments' },
   { path: '/admin/borrowers', label: 'Borrowers' },
+  // Reviewing what borrowers send; defining what they are asked for is Document Types.
+  { path: '/admin/documents', label: 'Documents' },
   {
     path: '/admin/notifications',
     label: 'Notifications',
@@ -48,6 +50,7 @@ export const ADMIN_ROUTES: AdminRoute[] = [
   { path: '/admin/providers', label: 'Providers' },
   { path: '/admin/products', label: 'Products' },
   { path: '/admin/credit-scoring', label: 'Credit Scoring' },
+  { path: '/admin/document-types', label: 'Document Types' },
   // Tax rules lived on the Settings page before they had their own.
   { path: '/admin/taxes', label: 'Taxes', inheritsFrom: 'settings' },
   { path: '/admin/accounting', label: 'Accounting' },
@@ -114,6 +117,8 @@ export const API_MODULE_MAP: Record<string, string> = {
   '/api/admin/disbursements': 'disbursements',
   '/api/admin/repayments': 'repayments',
   '/api/admin/borrowers': 'borrowers',
+  '/api/admin/documents': 'documents',
+  '/api/admin/document-types': 'document-types',
   '/api/admin/notifications': 'notifications',
   '/api/admin/providers': 'providers',
   '/api/admin/products': 'products',

@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import prisma from '../src/lib/prisma';
 import { centsToDecimal, formatMoney, toCents } from '../src/lib/money';
-import { today, type Day } from '../src/lib/business-date';
+import { dateFromDay, today, type Day } from '../src/lib/business-date';
+import { storeDocument } from '../src/lib/documents';
 import { ensureSequences, nextNumber } from '../src/lib/numbering';
 import { provisionChartOfAccounts, verifyLedger } from '../src/lib/accounting/ledger';
 import {
@@ -22,7 +23,8 @@ import { stateFromRow } from '../src/lib/lending/loan-store';
 
 /**
  * Demo dataset: two providers, three products, a scoring model, borrowers with
- * provisioned data, and loans in every state — built by calling the real
+ * provisioned data and documents in every review state, and loans in every
+ * state — built by calling the real
  * service layer with back-dated business days, not by writing balances by hand.
  * Every figure you see afterwards is what the platform would have produced.
  *
@@ -55,6 +57,10 @@ async function reset() {
     prisma.loan.deleteMany({ where: { id: { in: loanIds } } }),
     prisma.applicationDocument.deleteMany({ where: { application: { providerId: { in: providerIds } } } }),
     prisma.loanApplication.deleteMany({ where: { providerId: { in: providerIds } } }),
+    prisma.borrowerDocument.deleteMany({
+      where: { OR: [{ borrower: { phoneNumber: { startsWith: PHONE_PREFIX } } }, { providerId: { in: providerIds } }] },
+    }),
+    prisma.documentType.deleteMany({ where: { providerId: { in: providerIds } } }),
     prisma.ledgerAccount.deleteMany({ where: { providerId: { in: providerIds } } }),
     prisma.loanAmountTier.deleteMany({ where: { product: { providerId: { in: providerIds } } } }),
     prisma.loanProduct.deleteMany({ where: { providerId: { in: providerIds } } }),
@@ -114,6 +120,21 @@ async function main() {
   // ---- Tax ----------------------------------------------------------------
   await prisma.taxRule.create({
     data: { name: 'VAT (demo)', ratePercent: '15', appliesToFee: true, appliesToInterest: true, appliesToPenalty: true, status: 'ACTIVE' },
+  });
+
+  // ---- Documents ----------------------------------------------------------
+  // The bank's documents are shared with anything else on this database, so
+  // they are found by name rather than created twice, and a reset leaves them.
+  const bankDocument = async (name: string, kind: string, description: string) =>
+    (await prisma.documentType.findFirst({ where: { scope: 'GLOBAL', name } })) ??
+    prisma.documentType.create({ data: { scope: 'GLOBAL', name, kind, description, sortOrder: 0 } });
+  const nationalId = await bankDocument('National ID', 'FILE', 'Both sides, as one photo or PDF.');
+  const tin = await bankDocument('Tax identification number (TIN)', 'TEXT', 'The 10-digit TIN of your business.');
+  const tradeLicence = await prisma.documentType.create({
+    data: { scope: 'PRODUCT', providerId: asf.id, name: 'Trade licence', kind: 'FILE', requiresExpiry: true, description: "This year's renewed licence." },
+  });
+  const proforma = await prisma.documentType.create({
+    data: { scope: 'PRODUCT', providerId: asf.id, name: 'Equipment proforma invoice', kind: 'PDF', description: 'From the supplier, for the equipment you are buying.' },
   });
 
   // ---- Products -----------------------------------------------------------
@@ -178,11 +199,7 @@ async function main() {
       allowConcurrentLoans: true,
       requiresReview: true,
       requiresScoring: true,
-      requiredDocuments: JSON.stringify([
-        { key: 'business_licence', name: 'Business licence' },
-        { key: 'national_id', name: 'National ID' },
-        { key: 'proforma', name: 'Equipment proforma invoice' },
-      ]),
+      documentTypeIds: JSON.stringify([tradeLicence.id, proforma.id]),
       tiers: {
         create: [
           { minScore: 0, maxScore: 59, maxAmount: '0.00' },
@@ -318,6 +335,50 @@ async function main() {
         'By accepting this loan you agree to repay the principal, the service fee, daily interest and any applicable tax by the due dates shown. Late installments attract penalties as described in the product terms. Addis SME Finance may share repayment information with credit bureaus.',
     },
   });
+
+  // ---- Borrower documents, in every review state --------------------------
+  // A placeholder PDF: enough for the upload checks and the reviewer's download.
+  const placeholder = new TextEncoder().encode('%PDF-1.4\n% SME Lending demo document\n%%EOF\n');
+  async function giveDocument(
+    borrowerIndex: number,
+    type: { id: string; kind: string; providerId: string | null },
+    status: 'APPROVED' | 'PENDING' | 'REJECTED',
+    options: { version?: number; value?: string; expiresOn?: Day; note?: string } = {}
+  ) {
+    const borrower = borrowers[borrowerIndex];
+    const file = type.kind === 'TEXT' ? null : await storeDocument(placeholder, 'PDF');
+    await prisma.borrowerDocument.create({
+      data: {
+        borrowerId: borrower.id,
+        documentTypeId: type.id,
+        providerId: type.providerId,
+        version: options.version ?? 1,
+        status,
+        fileName: file ? 'scan-demo.pdf' : null,
+        mimeType: file?.mimeType ?? null,
+        sizeBytes: file?.sizeBytes ?? null,
+        sha256: file?.sha256 ?? null,
+        storageName: file?.storageName ?? null,
+        value: type.kind === 'TEXT' ? (options.value ?? `00${borrower.phoneNumber.slice(-8)}`) : null,
+        expiresOn: options.expiresOn === undefined ? null : dateFromDay(options.expiresOn),
+        ...(status === 'PENDING'
+          ? {}
+          : { reviewedById: 'SEED', reviewedByName: 'Demo seed', reviewedAt: new Date(), reviewNote: options.note ?? null }),
+      },
+    });
+  }
+  // Everyone but the newest borrower (index 7) has the bank's documents approved.
+  for (const index of [0, 1, 2, 3, 4, 5, 6]) {
+    await giveDocument(index, nationalId, 'APPROVED');
+    if (index !== 4) await giveDocument(index, tin, 'APPROVED');
+  }
+  // A TIN that was not accepted: borrower 4 must send it again before any loan.
+  await giveDocument(4, tin, 'REJECTED', { value: '123', note: 'A TIN has 10 digits. Please check it against your licence (demo).' });
+  // A replacement waiting for review: borrower 5 keeps borrowing on version 1 meanwhile.
+  await giveDocument(5, nationalId, 'PENDING', { version: 2 });
+  // The equipment applicant: licence approved but expiring soon, proforma waiting for the provider.
+  await giveDocument(6, tradeLicence, 'APPROVED', { expiresOn: T + 10 });
+  await giveDocument(6, proforma, 'PENDING');
 
   // ---- Loans, built through the service layer on past business days ------
   async function originate(borrowerIndex: number, productId: string, amount: number, disbursedOn: Day, outcome: 'SUCCEED' | 'FAIL' | 'PENDING' = 'SUCCEED') {

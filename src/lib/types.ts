@@ -51,7 +51,14 @@ export type JournalType = (typeof JOURNAL_TYPES)[number];
 export const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
-export const PENDING_CHANGE_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'FAILED'] as const;
+/** GLOBAL: the bank's, from every borrower. PRODUCT: a provider's, asked for by its products. */
+export const DOCUMENT_SCOPES = ['GLOBAL', 'PRODUCT'] as const;
+export type DocumentScope = (typeof DOCUMENT_SCOPES)[number];
+
+export const BORROWER_DOCUMENT_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUPERSEDED', 'WITHDRAWN'] as const;
+export type BorrowerDocumentStatus = (typeof BORROWER_DOCUMENT_STATUSES)[number];
+
+export const PENDING_CHANGE_STATUSES =['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'FAILED'] as const;
 export type PendingChangeStatus = (typeof PENDING_CHANGE_STATUSES)[number];
 
 // --------------------------------------

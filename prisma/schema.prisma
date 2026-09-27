@@ -177,6 +177,7 @@ model LoanProvider {
   dataConfigs       DataProvisioningConfig[]
   terms             TermsVersion[]
   eligibilityLists  EligibilityList[]
+  documentTypes     DocumentType[]
 }
 
 model LoanProduct {
@@ -204,8 +205,13 @@ model LoanProduct {
   allowConcurrentLoans Boolean @default(false)
   /// Applications wait for a reviewer instead of disbursing straight away.
   requiresReview    Boolean  @default(false)
-  /// JSON array of { key, name, description }.
+  /// Legacy: documents typed into the product before the document catalogue
+  /// existed, as a JSON array of { key, name, type }. Read only to label files
+  /// uploaded with applications made back then; `documentTypeIds` replaced it.
   requiredDocuments String   @default("[]") @db.NVarChar(Max)
+  /// JSON array of DocumentType ids: the provider's documents this product asks
+  /// for, on top of the bank's documents every borrower provides.
+  documentTypeIds   String   @default("[]") @db.NVarChar(Max)
   /// When false the tier table is ignored and the product max applies.
   requiresScoring   Boolean  @default(true)
   /// JSON object { field: "a,b,c" } matched against provisioned data.
@@ -420,6 +426,7 @@ model Borrower {
   acceptances  TermsAcceptance[]
   phones       BorrowerPhone[]
   coreBanking  BorrowerCoreBankingProfile?
+  documents    BorrowerDocument[]
 
   @@index([status])
   @@index([isNpl])
@@ -482,6 +489,82 @@ model BorrowerAccount {
 }
 
 // --------------------------------------
+// BORROWER DOCUMENTS
+// --------------------------------------
+
+/// A kind of document borrowers provide: a National ID, a trade licence, a TIN.
+///
+/// GLOBAL types belong to the bank. Every borrower provides them before any
+/// loan, and only bank staff (accounts with no provider) review them. PRODUCT
+/// types belong to one provider. Its products choose which of them they ask
+/// for, and only that provider's staff review them. Types are never deleted:
+/// an inactive type stops being asked for and keeps its history.
+model DocumentType {
+  id             String        @id @default(cuid())
+  scope          String        // GLOBAL | PRODUCT
+  /// The owning provider of a PRODUCT type; null for GLOBAL.
+  providerId     String?
+  provider       LoanProvider? @relation(fields: [providerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name           String
+  description    String        @default("") @db.NVarChar(300)
+  /// FILE | IMAGE | PDF | TEXT — see src/lib/document-kinds.ts.
+  kind           String        @default("FILE")
+  /// The borrower gives the date it expires; once past, it counts as missing.
+  requiresExpiry Boolean       @default(false)
+  status         String        @default("ACTIVE") // ACTIVE | INACTIVE
+  sortOrder      Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  documents BorrowerDocument[]
+
+  @@index([scope, status])
+  @@index([providerId])
+}
+
+/// One version of a document a borrower provided. Every upload is a new row;
+/// nothing is overwritten or deleted.
+///
+/// PENDING → APPROVED or REJECTED. An APPROVED version becomes SUPERSEDED when
+/// a newer one is approved, and a PENDING one becomes WITHDRAWN when the
+/// borrower sends another before it is reviewed. While a replacement waits, the
+/// approved version stays in effect, so updating a document never stops a
+/// borrower from applying.
+model BorrowerDocument {
+  id             String       @id @default(cuid())
+  borrowerId     String
+  borrower       Borrower     @relation(fields: [borrowerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  documentTypeId String
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// The type's provider, copied so each reviewer's queue is one indexed
+  /// filter. Null for the bank's documents.
+  providerId     String?
+  /// 1, 2, 3… per borrower and type.
+  version        Int
+  status         String       @default("PENDING") // PENDING | APPROVED | REJECTED | SUPERSEDED | WITHDRAWN
+  /// A file document, stored as application uploads are: under a generated name.
+  fileName       String?
+  mimeType       String?
+  sizeBytes      Int?
+  sha256         String?
+  storageName    String?
+  /// A typed document (TIN, licence number).
+  value          String?      @db.NVarChar(500)
+  expiresOn      DateTime?    @db.Date
+  submittedAt    DateTime     @default(now())
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+  reviewNote     String?      @db.NVarChar(1000)
+
+  @@unique([borrowerId, documentTypeId, version])
+  @@index([status, providerId])
+  @@index([borrowerId, status])
+  @@index([sha256])
+  @@index([expiresOn])
+}
+
+// --------------------------------------
 // APPLICATIONS & LOANS
 // --------------------------------------
 
@@ -506,9 +589,15 @@ model LoanApplication {
   reviewedByName      String?
   reviewedAt          DateTime?
   loanId              String?
+  /// JSON array of the approved document versions the loan was granted on,
+  /// taken when the loan is created, so replacing a document later never
+  /// changes the record of what the decision relied on.
+  documentSnapshot    String?      @db.NVarChar(Max)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
+  /// Legacy: files uploaded with the application before borrower documents
+  /// were reviewed ahead of applying.
   documents ApplicationDocument[]
   answers   ApplicationAnswer[]
   loans     Loan[]

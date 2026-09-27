@@ -1,5 +1,5 @@
 /**
- * What a product can ask for under each required document.
+ * What a document type can ask the borrower to provide.
  *
  * Deliberately a short list of kinds rather than free-form file types. Word,
  * Excel and text files are not offered: they cannot be told apart from any
@@ -40,18 +40,4 @@ export const MAX_ANSWER_LENGTH = 500;
 export function acceptAttribute(kind: DocumentKind): string {
   const extensions: Record<string, string> = { 'application/pdf': '.pdf', 'image/png': '.png', 'image/jpeg': '.jpg,.jpeg' };
   return DOCUMENT_KINDS[kind].mimeTypes.flatMap((type) => [extensions[type], type]).join(',');
-}
-
-/**
- * Required documents not yet provided. A typed document counts only as an
- * answer and a file document only as a file, so a product whose document
- * changed kind after the borrower responded asks for it again in the new form.
- */
-export function missingDocuments<T extends { key: string; type: DocumentKind }>(
-  required: T[],
-  provided: { files: Iterable<string>; answers: Iterable<string> }
-): T[] {
-  const files = new Set(provided.files);
-  const answers = new Set(provided.answers);
-  return required.filter((doc) => !(doc.type === 'TEXT' ? answers.has(doc.key) : files.has(doc.key)));
 }

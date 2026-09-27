@@ -102,7 +102,6 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         productId={product.id}
         currency={currency}
         requiresReview={product.requiresReview}
-        documents={card.requiredDocuments}
         colorHex={card.providerColor}
       />
     </div>

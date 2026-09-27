@@ -4,7 +4,7 @@ import { CHANGE_HANDLERS } from '@/lib/approvals';
 import { getSettings, SETTINGS_BY_KEY } from '@/lib/settings';
 import { formatAmount, formatMoney, toCents } from '@/lib/money';
 import { formatDateTime } from '@/lib/format';
-import { DOCUMENT_KINDS, parseRequiredDocuments } from '@/lib/documents';
+import { DOCUMENT_KINDS, type DocumentKind } from '@/lib/documents';
 import { providerFormValues, productFormValues } from '@/lib/lending/catalog';
 import { describeFee, describeInterest } from '@/lib/lending/product-view';
 import { cycleRangeLabel, LOAN_CYCLE_METRIC_LABELS, parseLoanCycle, type LoanCycleConfig } from '@/lib/lending/scoring';
@@ -145,7 +145,15 @@ const PROVIDER_FIELDS: FieldSpec[] = [
   { label: 'Display order', show: (r) => text(r.displayOrder) },
 ];
 
-function productFields(lists: Map<string, string>, providers: Map<string, string>, includeProvider: boolean): FieldSpec[] {
+/** A document type's name and what the borrower provides, for the product's document list. */
+type DocTypeLabel = { name: string; kind: string; status: string };
+
+function productFields(
+  lists: Map<string, string>,
+  providers: Map<string, string>,
+  docTypes: Map<string, DocTypeLabel>,
+  includeProvider: boolean
+): FieldSpec[] {
   return [
     ...(includeProvider ? [{ label: 'Provider', show: (r: Record_) => text(providers.get(String(r.providerId)) ?? r.providerId) }] : []),
     { label: 'Name', show: (r) => text(r.name) },
@@ -169,12 +177,21 @@ function productFields(lists: Map<string, string>, providers: Map<string, string
     { label: 'Loan officer review', show: (r) => yesNo(r.requiresReview, 'Every application is reviewed', 'Eligible applications disburse at once') },
     { label: 'Alongside other loans', show: (r) => yesNo(r.allowConcurrentLoans, 'Allowed', 'Not allowed') },
     {
-      label: 'Required documents',
+      label: 'Provider documents asked for',
       show: (r) => {
-        const docs = parseRequiredDocuments(JSON.stringify(r.requiredDocuments ?? []));
-        return docs.length
-          ? { type: 'table', columns: ['Document', 'Borrower provides'], rows: docs.map((d) => [d.name, DOCUMENT_KINDS[d.type].label]) }
-          : text('', { empty: 'None' });
+        const ids = Array.isArray(r.documentTypeIds) ? (r.documentTypeIds as string[]) : [];
+        return ids.length
+          ? {
+              type: 'table',
+              columns: ['Document', 'Borrower provides'],
+              rows: ids.map((id) => {
+                const doc = docTypes.get(id);
+                return doc
+                  ? [`${doc.name}${doc.status === 'ACTIVE' ? '' : ' (inactive)'}`, kindLabel(doc.kind)]
+                  : ['A document type that no longer exists', '—'];
+              }),
+            }
+          : text('', { empty: "None — only the bank's documents" });
       },
     },
     {
@@ -196,6 +213,18 @@ function productFields(lists: Map<string, string>, providers: Map<string, string
     { label: 'Cycle rule', show: (r) => cycleRule(parseLoanCycle(r.cycleConfig ? JSON.stringify(r.cycleConfig) : null)) },
   ];
 }
+
+function kindLabel(kind: unknown) {
+  return DOCUMENT_KINDS[String(kind) as DocumentKind]?.label ?? String(kind ?? '—');
+}
+
+const DOCUMENT_TYPE_FIELDS: FieldSpec[] = [
+  { label: 'Name', show: (r) => text(r.name) },
+  { label: 'Description shown to borrowers', show: (r) => ({ type: 'long', text: String(r.description ?? '') || '—' }) },
+  { label: 'Expiry date', show: (r) => yesNo(r.requiresExpiry, 'Borrower gives it; expired documents stop counting', 'Not asked') },
+  { label: 'Status', show: (r) => text(r.status === 'INACTIVE' ? 'Inactive — no longer asked for' : 'Active') },
+  { label: 'Display order', show: (r) => text(r.sortOrder ?? 0) },
+];
 
 const TAX_FIELDS: FieldSpec[] = [
   { label: 'Name', show: (r) => text(r.name) },
@@ -301,6 +330,14 @@ async function subjectFor(change: PendingChange, payload: Record_): Promise<{ su
         provider: await providerName(product?.providerId ?? (payload.providerId as string | undefined)),
       };
     }
+    case 'DocumentType': {
+      const type = id ? await prisma.documentType.findUnique({ where: { id }, select: { name: true, providerId: true } }) : null;
+      const providerId = type ? type.providerId : ((payload.providerId as string | null | undefined) ?? null);
+      return {
+        subject: { label: 'Document type', name: type?.name ?? String(payload.name ?? 'New document type'), href: '/admin/document-types' },
+        provider: await providerName(providerId),
+      };
+    }
     case 'TaxRule': {
       const tax = id ? await prisma.taxRule.findUnique({ where: { id }, select: { name: true } }) : null;
       return { subject: { label: 'Tax', name: tax?.name ?? String(payload.name ?? 'New tax'), href: '/admin/taxes' }, provider: null };
@@ -402,12 +439,18 @@ async function build(change: PendingChange, payload: Record_, previous: Record_ 
 
     case 'Product.CREATE':
     case 'Product.UPDATE': {
-      const [lists, providers] = await Promise.all([
+      const [lists, providers, docTypes] = await Promise.all([
         prisma.eligibilityList.findMany({ select: { id: true, name: true, _count: { select: { entries: true } } } }),
         prisma.loanProvider.findMany({ select: { id: true, name: true } }),
+        prisma.documentType.findMany({ where: { scope: 'PRODUCT' }, select: { id: true, name: true, kind: true, status: true } }),
       ]);
       const listNames = new Map(lists.map((l) => [l.id, `${l.name} (${l._count.entries.toLocaleString('en-US')} customers)`]));
-      const specs = productFields(listNames, new Map(providers.map((p) => [p.id, p.name])), kind === 'Product.CREATE');
+      const specs = productFields(
+        listNames,
+        new Map(providers.map((p) => [p.id, p.name])),
+        new Map(docTypes.map((d) => [d.id, d])),
+        kind === 'Product.CREATE'
+      );
       if (kind === 'Product.CREATE') {
         return {
           rows: compareRows(specs, null, payload, ctx),
@@ -423,6 +466,11 @@ async function build(change: PendingChange, payload: Record_, previous: Record_ 
       }
       if (before && (before.eligibilityListId ?? null) !== (payload.eligibilityListId ?? null)) {
         impact.push('Who can see and apply for the product changes the moment this is approved.');
+      }
+      const listedBefore = Array.isArray(before?.documentTypeIds) ? (before.documentTypeIds as string[]) : [];
+      const listedNow = Array.isArray(payload.documentTypeIds) ? (payload.documentTypeIds as string[]) : [];
+      if (listedNow.some((docId) => !listedBefore.includes(docId))) {
+        impact.push('Borrowers must have the newly listed documents approved before their next application for this product.');
       }
       return { rows: compareRows(specs, before, payload, ctx), impact, requestRows: current && previous ? compareRows(specs, previous, payload, ctx) : undefined };
     }
@@ -479,6 +527,67 @@ async function build(change: PendingChange, payload: Record_, previous: Record_ 
           `Every borrower of this provider is scored with the new model from their next eligibility check — ${products} product(s) use scoring.`,
           `Highest possible score: ${total(stored)} ${pending ? 'now' : 'before'}, ${total(proposed)} with this model. Check the amount tiers cover the new range.`,
         ],
+      };
+    }
+
+    case 'DocumentType.CREATE': {
+      const provider = payload.providerId
+        ? await prisma.loanProvider.findUnique({ where: { id: String(payload.providerId) }, select: { name: true } })
+        : null;
+      const rows = [
+        oneOff(
+          'Belongs to',
+          text(payload.scope === 'GLOBAL' ? 'The bank — asked of every borrower' : `${provider?.name ?? 'A provider'} — asked for by products that list it`)
+        ),
+        oneOff('Borrower provides', text(kindLabel(payload.kind))),
+        ...compareRows(DOCUMENT_TYPE_FIELDS, null, payload, ctx),
+      ];
+      if (payload.scope !== 'GLOBAL') {
+        return {
+          rows,
+          impact: [
+            `Nobody is asked for it until one of ${provider?.name ?? 'the provider'}'s products lists it, which is a product change needing its own approval.`,
+            "Reviewed by the provider's own staff.",
+          ],
+        };
+      }
+      const borrowers = await prisma.borrower.count({ where: { status: 'ACTIVE' } });
+      return {
+        rows,
+        impact:
+          payload.status === 'INACTIVE'
+            ? ['Created inactive: nobody is asked for it until it is activated.']
+            : [
+                `All ${borrowers.toLocaleString('en-US')} active borrower(s) must provide it and have it approved by bank staff before their next application, for every product.`,
+                'Loans already running are not affected.',
+              ],
+      };
+    }
+
+    case 'DocumentType.UPDATE': {
+      const current = pending && id ? await prisma.documentType.findUnique({ where: { id } }) : null;
+      const before = (current as unknown as Record_ | null) ?? previous;
+      const impact: string[] = [];
+      if (before?.status === 'ACTIVE' && payload.status === 'INACTIVE') {
+        impact.push('It stops being asked for. Documents already approved stay on file.');
+        if (id) {
+          const products = await prisma.loanProduct.count({ where: { documentTypeIds: { contains: `"${id}"` } } });
+          if (products) impact.push(`${products} product(s) list it. They stop asking for it, and must untick it before their next change.`);
+        }
+      }
+      if (before?.status === 'INACTIVE' && payload.status === 'ACTIVE') {
+        impact.push(
+          current?.scope === 'GLOBAL' ? 'Every borrower must provide it before their next application.' : 'Products that list it ask for it again.'
+        );
+      }
+      if (before && !before.requiresExpiry && (payload.requiresExpiry === true || payload.requiresExpiry === 'true')) {
+        impact.push('New uploads must give an expiry date. Documents already approved without one stay valid.');
+      }
+      if (!impact.length) impact.push('Applies as soon as it is approved.');
+      return {
+        rows: compareRows(DOCUMENT_TYPE_FIELDS, before, payload, ctx),
+        impact,
+        requestRows: current && previous ? compareRows(DOCUMENT_TYPE_FIELDS, previous, payload, ctx) : undefined,
       };
     }
 
@@ -635,6 +744,8 @@ const PHRASES: Record<string, (named: string, payload: Record_) => string> = {
   'Product.STATUS': (s, p) => `${p.status === 'ACTIVE' ? 'activate' : 'deactivate'} product ${s}`,
   'Product.TIERS': (s) => `replace the amount tiers of product ${s}`,
   'ScoringModel.UPDATE': (s) => `replace the scoring model of ${s}`,
+  'DocumentType.CREATE': (s, p) => `create ${p.scope === 'GLOBAL' ? 'bank' : 'provider'} document type ${s}`,
+  'DocumentType.UPDATE': (s) => `update document type ${s}`,
   'TaxRule.CREATE': (s) => `create tax ${s}`,
   'TaxRule.UPDATE': (s) => `update tax ${s}`,
   'Terms.PUBLISH': (s) => `publish new terms & conditions for ${s}`,

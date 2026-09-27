@@ -43,6 +43,8 @@ export const ROLE_PRESETS: RolePreset[] = [
     permissions: matrix({
       dashboard: R,
       applications: { read: true, update: true, approve: true },
+      // Checking a borrower's documents is part of the same judgement as their application.
+      documents: RA,
       loans: R,
       disbursements: R,
       repayments: RC,
@@ -63,9 +65,11 @@ export const ROLE_PRESETS: RolePreset[] = [
       applications: R,
       loans: R,
       borrowers: R,
+      documents: R,
       providers: RCU,
       products: RCU,
       'credit-scoring': RCU,
+      'document-types': RCU,
       reports: R,
       approvals: R,
     }),
@@ -97,6 +101,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       providers: RA,
       products: RA,
       'credit-scoring': RA,
+      'document-types': RA,
       accounting: RA,
       reports: R,
       approvals: RA,

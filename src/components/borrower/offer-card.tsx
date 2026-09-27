@@ -60,6 +60,13 @@ export function OfferCard({
                 Up to {money(offer.available, currency)} for you
               </p>
             )}
+            {offer.eligible && offer.documentsNeeded > 0 && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {offer.documentsNeeded === offer.documentsWaiting
+                  ? `${offer.documentsNeeded === 1 ? 'Your document is' : 'Your documents are'} being reviewed`
+                  : `${offer.documentsNeeded - offer.documentsWaiting} document${offer.documentsNeeded - offer.documentsWaiting === 1 ? '' : 's'} needed to apply`}
+              </p>
+            )}
           </div>
         </div>
 

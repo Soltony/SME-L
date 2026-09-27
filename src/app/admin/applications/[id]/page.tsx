@@ -7,7 +7,9 @@ import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { centsToNumber, toCents } from '@/lib/money';
 import { formatDateTime, maskAccount } from '@/lib/format';
-import { DOCUMENT_KINDS, missingDocuments, parseRequiredDocuments } from '@/lib/documents';
+import { parseRequiredDocuments } from '@/lib/documents';
+import { parseDocumentSnapshot, REQUIREMENT_LABELS } from '@/lib/lending/document-requirements';
+import { describeOutstanding, outstandingDocuments, productChecklist } from '@/lib/lending/borrower-documents';
 import { evaluateEligibility } from '@/lib/lending/eligibility';
 import { prepareCoreBankingForProduct } from '@/lib/lending/core-banking-profile';
 import { PageHeader } from '@/components/admin/page-header';
@@ -34,11 +36,13 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
   if (!application || (user.providerId && application.providerId !== user.providerId)) notFound();
 
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
-  const required = parseRequiredDocuments(application.product.requiredDocuments);
-  const uploaded = new Map(application.documents.map((d) => [d.documentKey, d]));
-  const answers = new Map(application.answers.map((a) => [a.documentKey, a]));
-  const missing = missingDocuments(required, { files: uploaded.keys(), answers: answers.keys() });
   const open = application.status === 'SUBMITTED';
+  // Open: where the borrower stands now, which is what approval checks. Decided: what the loan relied on.
+  const checklist = open ? await productChecklist(prisma, application.borrowerId, application.productId) : [];
+  const missing = outstandingDocuments(checklist);
+  const snapshot = parseDocumentSnapshot(application.documentSnapshot);
+  // Files uploaded with the application before documents were reviewed ahead of applying.
+  const legacyNames = new Map(parseRequiredDocuments(application.product.requiredDocuments).map((d) => [d.key, d.name]));
   // Re-evaluated now: the reviewer decides on today's position, not the one at submission.
   if (open) await prepareCoreBankingForProduct(application.borrowerId, application.productId);
   const now = open
@@ -101,7 +105,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
 
       {open && missing.length > 0 && (
         <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-          Waiting for the borrower to provide: {missing.map((d) => d.name).join(', ')}. It cannot be approved until they do.
+          Documents not yet approved: {describeOutstanding(missing)}. It cannot be approved until they are.
         </div>
       )}
 
@@ -161,52 +165,96 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
         </section>
 
         <section className="panel p-4 text-sm">
-          <h2 className="mb-3 font-semibold">Documents</h2>
-          {required.length === 0 ? (
-            <p className="text-muted-foreground">This product asks for no documents.</p>
+          <h2 className="mb-1 font-semibold">Documents</h2>
+          {open ? (
+            <>
+              <p className="mb-3 text-xs text-muted-foreground">Where the borrower stands now. Reviewed under Documents, before the application.</p>
+              {checklist.length === 0 ? (
+                <p className="text-muted-foreground">This product asks for no documents.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {checklist.map((item) => {
+                    const version = item.approved ?? item.pending ?? item.rejected;
+                    return (
+                      <li key={item.type.id} className="rounded-md border border-border p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{item.type.name}</span>
+                          <span className={item.satisfied ? 'text-xs font-semibold text-success' : 'text-xs font-semibold text-warning'}>
+                            {REQUIREMENT_LABELS[item.status]}
+                          </span>
+                        </div>
+                        <span className="block text-xs text-muted-foreground">
+                          {item.type.providerName ?? 'Bank'}
+                          {item.approved?.expiresOn && ` · valid until ${item.approved.expiresOn}`}
+                          {version && (
+                            <>
+                              {' · '}
+                              <Link href={`/admin/documents/${version.id}`} className="text-primary hover:underline">
+                                view v{version.version}
+                              </Link>
+                            </>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
           ) : (
-            <ul className="space-y-2">
-              {required.map((doc) => {
-                if (doc.type === 'TEXT') {
-                  const answer = answers.get(doc.key);
-                  return (
-                    <li key={doc.key} className="rounded-md border border-border p-2">
-                      <span className="block font-medium">{doc.name}</span>
-                      {answer ? (
-                        <>
-                          <span className="block break-words">{answer.value}</span>
-                          <span className="block text-xs text-muted-foreground">Typed · {formatDateTime(answer.answeredAt)}</span>
-                        </>
-                      ) : (
-                        <span className="block text-xs text-muted-foreground">Not provided · typed answer</span>
-                      )}
-                    </li>
-                  );
-                }
-                const file = uploaded.get(doc.key);
-                return (
-                  <li key={doc.key} className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
-                    <span>
-                      <span className="block font-medium">{doc.name}</span>
+            <>
+              <p className="mb-3 text-xs text-muted-foreground">The approved documents the loan was granted on.</p>
+              {snapshot.length === 0 ? (
+                <p className="text-muted-foreground">None recorded.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {snapshot.map((entry) => (
+                    <li key={entry.documentId} className="rounded-md border border-border p-2">
+                      <Link href={`/admin/documents/${entry.documentId}`} className="font-medium text-primary hover:underline">
+                        {entry.name} · v{entry.version}
+                      </Link>
                       <span className="block text-xs text-muted-foreground">
-                        {file
-                          ? `${file.fileName} · ${(file.sizeBytes / 1024).toFixed(0)} KB · ${formatDateTime(file.uploadedAt)}`
-                          : `Not uploaded · ${DOCUMENT_KINDS[doc.type].label.toLowerCase()}`}
+                        {entry.fileName ?? entry.value}
+                        {entry.expiresOn && ` · valid until ${entry.expiresOn}`}
+                        {entry.approvedBy && ` · approved by ${entry.approvedBy}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {(application.documents.length > 0 || application.answers.length > 0) && (
+            <>
+              <h3 className="mb-2 mt-4 text-xs font-semibold text-muted-foreground">Uploaded with the application (earlier process)</h3>
+              <ul className="space-y-2">
+                {application.answers.map((answer) => (
+                  <li key={answer.id} className="rounded-md border border-border p-2">
+                    <span className="block font-medium">{legacyNames.get(answer.documentKey) ?? answer.documentKey}</span>
+                    <span className="block break-words">{answer.value}</span>
+                    <span className="block text-xs text-muted-foreground">Typed · {formatDateTime(answer.answeredAt)}</span>
+                  </li>
+                ))}
+                {application.documents.map((file) => (
+                  <li key={file.id} className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
+                    <span>
+                      <span className="block font-medium">{legacyNames.get(file.documentKey) ?? file.documentKey}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {file.fileName} · {(file.sizeBytes / 1024).toFixed(0)} KB · {formatDateTime(file.uploadedAt)}
                       </span>
                     </span>
-                    {file && (
-                      <a
-                        href={`/api/admin/applications/${application.id}/documents/${file.id}`}
-                        className="rounded-md p-1.5 text-primary hover:bg-secondary"
-                        title={`Download (SHA-256 ${file.sha256.slice(0, 12)}…)`}
-                      >
-                        <Download className="h-4 w-4" />
-                      </a>
-                    )}
+                    <a
+                      href={`/api/admin/applications/${application.id}/documents/${file.id}`}
+                      className="rounded-md p-1.5 text-primary hover:bg-secondary"
+                      title={`Download (SHA-256 ${file.sha256.slice(0, 12)}…)`}
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
                   </li>
-                );
-              })}
-            </ul>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       </div>

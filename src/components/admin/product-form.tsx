@@ -9,13 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { DOCUMENT_KIND_KEYS, DOCUMENT_KINDS, type DocumentKind } from '@/lib/document-kinds';
+import { DOCUMENT_KINDS, type DocumentKind } from '@/lib/document-kinds';
 import { postJson } from './action-dialog';
 import { NewEligibilityList } from './eligibility-lists';
 import { LoanCycleEditor } from './loan-cycle-editor';
-import type { DocRow, FilterRow, ListOption, PenaltyRow, ProductFormValues } from './product-form-values';
+import type { DocTypeOption, FilterRow, ListOption, PenaltyRow, ProductFormValues } from './product-form-values';
 
 export type { ProductFormValues };
 
@@ -51,7 +52,7 @@ function toPayload(v: ProductFormValues) {
     allowConcurrentLoans: v.allowConcurrentLoans,
     requiresReview: v.requiresReview,
     requiresScoring: v.requiresScoring,
-    requiredDocuments: v.requiredDocuments.filter((d) => d.key || d.name),
+    documentTypeIds: v.documentTypeIds,
     eligibilityFilter: v.eligibilityFilter.length
       ? Object.fromEntries(v.eligibilityFilter.filter((f) => f.field.trim()).map((f) => [f.field.trim(), f.values]))
       : null,
@@ -78,6 +79,8 @@ export function ProductForm({
   initial,
   providers,
   lists,
+  documentTypes,
+  bankDocuments,
   canCreateList,
   canSubmit,
 }: {
@@ -86,6 +89,10 @@ export function ProductForm({
   providers: { id: string; name: string }[];
   /** Saved customer lists for every provider offered above. */
   lists: ListOption[];
+  /** Document types of every provider offered above. */
+  documentTypes: DocTypeOption[];
+  /** Names of the bank's active documents, asked of every borrower. */
+  bankDocuments: string[];
   canCreateList: boolean;
   canSubmit: boolean;
 }) {
@@ -100,6 +107,12 @@ export function ProductForm({
     (l) => l.providerId === v.providerId
   );
   const selectedList = providerLists.find((l) => l.id === v.eligibilityListId);
+  // An inactive type stays visible while ticked, so the maker can see why saving is refused and untick it.
+  const providerDocTypes = documentTypes.filter(
+    (t) => t.providerId === v.providerId && (t.status === 'ACTIVE' || v.documentTypeIds.includes(t.id))
+  );
+  const toggleDocType = (id: string, on: boolean) =>
+    set('documentTypeIds', on ? [...v.documentTypeIds, id] : v.documentTypeIds.filter((d) => d !== id));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -145,8 +158,8 @@ export function ProductForm({
           <Field error={err('providerId')} label="Provider">
             <select
               value={v.providerId}
-              // Lists belong to a provider, so a list chosen for another one no longer applies.
-              onChange={(e) => setV((s) => ({ ...s, providerId: e.target.value, eligibilityListId: '' }))}
+              // Lists and document types belong to a provider, so choices made for another one no longer apply.
+              onChange={(e) => setV((s) => ({ ...s, providerId: e.target.value, eligibilityListId: '', documentTypeIds: [] }))}
               disabled={Boolean(productId)}
               className={SELECT}
             >
@@ -301,46 +314,43 @@ export function ProductForm({
         </section>
 
         <section className="panel p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">Required documents</h2>
-            <Button type="button" size="sm" variant="outline" onClick={() => set('requiredDocuments', [...v.requiredDocuments, { key: '', name: '', type: 'FILE' }])}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add document
-            </Button>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <h2 className="font-semibold">Documents</h2>
+            <Link href="/admin/document-types" className="text-xs text-primary hover:underline">
+              Manage document types
+            </Link>
           </div>
-          {v.requiredDocuments.length === 0 && <p className="text-sm text-muted-foreground">None. Only asked for when the product is reviewed.</p>}
-          {v.requiredDocuments.length > 0 && (
-            <div className="mb-1 hidden gap-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[200px_1fr_200px_40px]">
-              <span>Key</span>
-              <span>Name shown to the borrower</span>
-              <span>Borrower provides</span>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Borrowers must have every document approved before they can apply — instant products included. Every borrower already provides the
+            bank&apos;s documents{bankDocuments.length ? `: ${bankDocuments.join(', ')}` : ' (none set up yet)'}. Tick the provider documents
+            this product also needs; the provider&apos;s own staff review them.
+          </p>
+          {providerDocTypes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This provider has no document types yet. Add them under Document types.</p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2">
+              {providerDocTypes.map((type) => {
+                const checked = v.documentTypeIds.includes(type.id);
+                return (
+                  <label
+                    key={type.id}
+                    className={cn('flex items-start gap-2 rounded-lg border p-2.5 text-sm', type.status === 'ACTIVE' ? 'border-border' : 'border-destructive/50')}
+                  >
+                    <Checkbox className="mt-0.5" checked={checked} onCheckedChange={(on) => toggleDocType(type.id, on === true)} />
+                    <span>
+                      {type.name}
+                      {type.status !== 'ACTIVE' && <span className="text-destructive"> — no longer in use; untick it</span>}
+                      <span className="block text-xs text-muted-foreground">
+                        {DOCUMENT_KINDS[type.kind as DocumentKind]?.label ?? type.kind}
+                        {type.requiresExpiry ? ' · with expiry date' : ''}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           )}
-          <div className="space-y-2">
-            {v.requiredDocuments.map((doc, i) => (
-              <div key={i} className="grid gap-2 md:grid-cols-[200px_1fr_200px_40px]">
-                <div>
-                  <Input aria-label="Key" placeholder="business_licence" value={doc.key} onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, key: e.target.value } : d)))} className={cls(`requiredDocuments.${i}.key`)} />
-                  {err(`requiredDocuments.${i}.key`) && <p className="text-xs text-destructive">{err(`requiredDocuments.${i}.key`)}</p>}
-                </div>
-                <Input aria-label="Name" placeholder={doc.type === 'TEXT' ? 'TIN number' : 'Business licence'} value={doc.name} onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, name: e.target.value } : d)))} />
-                <select
-                  aria-label="Borrower provides"
-                  value={doc.type}
-                  onChange={(e) => set('requiredDocuments', v.requiredDocuments.map((d, j) => (j === i ? { ...d, type: e.target.value as DocumentKind } : d)))}
-                  className={SELECT}
-                >
-                  {DOCUMENT_KIND_KEYS.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {DOCUMENT_KINDS[kind].label}
-                    </option>
-                  ))}
-                </select>
-                <Button type="button" variant="ghost" size="icon" aria-label="Remove document" onClick={() => set('requiredDocuments', v.requiredDocuments.filter((_, j) => j !== i))}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
+          {err('documentTypeIds') && <p className="mt-2 text-xs text-destructive">{err('documentTypeIds')}</p>}
         </section>
 
         <section className="panel p-4">

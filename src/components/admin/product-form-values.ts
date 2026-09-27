@@ -1,9 +1,8 @@
 /** Form state for the product designer. Shared by server pages and the client form. */
 
-import type { DocumentKind } from '@/lib/document-kinds';
-
 export type PenaltyRow = { fromDay: string; toDay: string; type: string; value: string; frequency: string };
-export type DocRow = { key: string; name: string; description?: string; type: DocumentKind };
+/** A provider document type the product can ask for. */
+export type DocTypeOption = { id: string; providerId: string; name: string; kind: string; requiresExpiry: boolean; status: string };
 export type FilterRow = { field: string; values: string };
 /** One score grade of the loan cycle table: a percentage per cycle, as typed. */
 export type GradeRow = { label: string; minScore: string; percents: string[] };
@@ -29,7 +28,8 @@ export interface ProductFormValues {
   allowConcurrentLoans: boolean;
   requiresReview: boolean;
   requiresScoring: boolean;
-  requiredDocuments: DocRow[];
+  /** The provider's document types this product asks for, on top of the bank's. */
+  documentTypeIds: string[];
   eligibilityFilter: FilterRow[];
   /** Empty when anyone may apply. */
   eligibilityListId: string;
@@ -61,7 +61,7 @@ export function blankProduct(providerId: string): ProductFormValues {
     allowConcurrentLoans: false,
     requiresReview: false,
     requiresScoring: true,
-    requiredDocuments: [],
+    documentTypeIds: [],
     eligibilityFilter: [],
     eligibilityListId: '',
     cycleEnabled: false,

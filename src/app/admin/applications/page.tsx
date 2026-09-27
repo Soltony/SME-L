@@ -45,9 +45,8 @@ export default async function ApplicationsPage({
       where,
       include: {
         borrower: { select: { fullName: true, phoneNumber: true, isNpl: true } },
-        product: { select: { name: true, requiresReview: true, requiredDocuments: true } },
+        product: { select: { name: true, requiresReview: true } },
         provider: { select: { name: true } },
-        _count: { select: { documents: true, answers: true } },
       },
       orderBy: { createdAt: status === 'SUBMITTED' ? 'asc' : 'desc' },
       skip: (page - 1) * pageSize,
@@ -82,7 +81,7 @@ export default async function ApplicationsPage({
               <th className="px-4 py-2.5 font-semibold">Product</th>
               <th className="px-4 py-2.5 text-right font-semibold">Requested</th>
               <th className="px-4 py-2.5 text-right font-semibold">Score</th>
-              <th className="px-4 py-2.5 font-semibold">Documents</th>
+              <th className="px-4 py-2.5 font-semibold">Decision</th>
               <th className="px-4 py-2.5 font-semibold">Submitted</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
             </tr>
@@ -90,13 +89,6 @@ export default async function ApplicationsPage({
           <tbody className="divide-y divide-border">
             {applications.length === 0 && <EmptyRow colSpan={8} message="No applications match." />}
             {applications.map((a) => {
-              const required = (() => {
-                try {
-                  return (JSON.parse(a.product.requiredDocuments) as unknown[]).length;
-                } catch {
-                  return 0;
-                }
-              })();
               return (
                 <tr key={a.id} className="hover:bg-secondary/30">
                   <td className="px-4 py-2.5">
@@ -116,7 +108,7 @@ export default async function ApplicationsPage({
                   </td>
                   <td className="num px-4 py-2.5 text-right">{moneyCents(toCents(a.requestedAmount), currency)}</td>
                   <td className="num px-4 py-2.5 text-right">{a.score ?? '—'}</td>
-                  <td className="px-4 py-2.5">{required ? `${a._count.documents + a._count.answers}/${required}` : '—'}</td>
+                  <td className="px-4 py-2.5 text-xs">{a.product.requiresReview ? 'Officer review' : 'Instant'}</td>
                   <td className="px-4 py-2.5 text-xs">{formatDateTime(a.createdAt)}</td>
                   <td className="px-4 py-2.5">
                     <StatusBadge status={a.status} />

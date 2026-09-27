@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AlertTriangle, BadgeDollarSign, CheckSquare, ClipboardList, Landmark, Scale, Send, TrendingUp, Users } from 'lucide-react';
+import { AlertTriangle, BadgeDollarSign, CheckSquare, ClipboardList, FileCheck2, Landmark, Scale, Send, TrendingUp, Users } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
 import { getSettings } from '@/lib/settings';
@@ -29,7 +29,7 @@ export default async function DashboardPage() {
   const monthStart = isoToDay(`${dayToIso(T).slice(0, 8)}01`);
   const chartStart = T - 13;
 
-  const [portfolio, submitted, pendingApprovals, unknownDisbursements, queuedDisbursements, disbursedRecent, collectedRecent, ledgerTotals] =
+  const [portfolio, submitted, pendingApprovals, unknownDisbursements, queuedDisbursements, disbursedRecent, collectedRecent, ledgerTotals, pendingDocuments] =
     await Promise.all([
       portfolioReport(user.providerId),
       prisma.loanApplication.count({ where: { status: 'SUBMITTED', ...scope } }),
@@ -45,6 +45,8 @@ export default async function DashboardPage() {
         select: { valueDate: true, amount: true },
       }),
       prisma.ledgerLine.aggregate({ where: user.providerId ? { account: { providerId: user.providerId } } : {}, _sum: { debit: true, credit: true } }),
+      // What this user may decide: the bank's documents for bank staff, their own provider's for provider staff.
+      prisma.borrowerDocument.count({ where: { status: 'PENDING', providerId: user.providerId ?? null } }),
     ]);
 
   const totals = portfolio.reduce(
@@ -97,6 +99,9 @@ export default async function DashboardPage() {
   const attention = [
     submitted > 0 && hasPermission(user, 'applications', 'read')
       ? { href: '/admin/applications', text: `${submitted} application(s) waiting for review`, icon: ClipboardList }
+      : null,
+    pendingDocuments > 0 && hasPermission(user, 'documents', 'read')
+      ? { href: '/admin/documents', text: `${pendingDocuments} borrower document(s) waiting for review — borrowers cannot apply until they are approved`, icon: FileCheck2 }
       : null,
     pendingApprovals > 0 && hasPermission(user, 'approvals', 'read')
       ? { href: '/admin/approvals', text: `${pendingApprovals} change(s) waiting for approval`, icon: CheckSquare }
