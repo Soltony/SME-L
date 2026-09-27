@@ -6,7 +6,7 @@ import { getSettings } from '@/lib/settings';
 import { buildLoanView } from '@/lib/lending/loan-view';
 import { OPEN_LOAN_STATUSES } from '@/lib/types';
 import { centsToNumber, toCents } from '@/lib/money';
-import { alpha } from '@/lib/brand';
+import { alpha, brandStyle, honeycomb, PLATFORM_BRAND } from '@/lib/brand';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProviderIcon } from '@/components/provider-icon';
 import { money } from '@/components/money';
@@ -54,18 +54,25 @@ export default async function MyLoansPage() {
     <div className="space-y-5">
       <h1 className="text-xl font-bold">My loans</h1>
 
-      <section className="ink grid grid-cols-3 gap-2 rounded-2xl p-4 text-center">
-        <div>
-          <p className="text-[11px] text-[hsl(var(--ink-muted))]">Owed today</p>
-          <p className="num mt-0.5 font-bold">{money(owed)}</p>
-        </div>
-        <div className="border-x border-white/10">
-          <p className="text-[11px] text-[hsl(var(--ink-muted))]">Borrowed in all</p>
-          <p className="num mt-0.5 font-bold">{money(borrowed)}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-[hsl(var(--ink-muted))]">Loans</p>
-          <p className="num mt-0.5 font-bold">{loans.length}</p>
+      {/* The platform's gold with white text, matching the profile and home cards. */}
+      <section
+        className="brand-surface relative overflow-hidden rounded-2xl p-4 text-center shadow-lg"
+        style={brandStyle(PLATFORM_BRAND, { lightText: true })}
+      >
+        <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb('#FFFFFF', 0.22)} aria-hidden />
+        <div className="relative grid grid-cols-3 gap-2">
+          <div>
+            <p className="text-[11px] opacity-85">Owed today</p>
+            <p className="num mt-0.5 font-bold">{money(owed)}</p>
+          </div>
+          <div className="border-x" style={{ borderColor: 'var(--brand-line)' }}>
+            <p className="text-[11px] opacity-85">Borrowed in all</p>
+            <p className="num mt-0.5 font-bold">{money(borrowed)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] opacity-85">Loans</p>
+            <p className="num mt-0.5 font-bold">{loans.length}</p>
+          </div>
         </div>
       </section>
       {/* The currency once, under the figures, so three of them fit a phone. */}

@@ -29,7 +29,8 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
   // A document can lapse while an application waits; the officer cannot approve until it is current again.
   const missing =
     application.status === 'SUBMITTED' ? outstandingDocuments(await productChecklist(prisma, borrower.id, application.productId)) : [];
-  const { foreground } = brandTokens(application.provider.colorHex);
+  // White text on every lender colour, as on the home card; a light colour is deepened to keep it readable.
+  const { foreground } = brandTokens(application.provider.colorHex, { lightText: true });
 
   return (
     <div className="space-y-4">
@@ -39,7 +40,7 @@ export default async function BorrowerApplicationPage({ params }: { params: Prom
 
       <section
         className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg"
-        style={brandStyle(application.provider.colorHex)}
+        style={brandStyle(application.provider.colorHex, { lightText: true })}
       >
         <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
         <div className="relative">

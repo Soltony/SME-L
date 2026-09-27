@@ -46,7 +46,8 @@ export function CreditCard({
 }) {
   const [showLimit, setShowLimit] = useState(true);
   const [showAvailable, setShowAvailable] = useState(true);
-  const { foreground, isLight } = brandTokens(colorHex);
+  // White text on every lender's colour; a light colour is deepened to keep it readable.
+  const { foreground, isLight } = brandTokens(colorHex, { lightText: true });
   const free = maxLimit > 0 ? Math.max(0, Math.min(100, Math.round((available / maxLimit) * 100))) : 0;
 
   const figure = (
@@ -91,7 +92,7 @@ export function CreditCard({
   return (
     <section
       className="brand-surface relative overflow-hidden rounded-2xl shadow-lg"
-      style={brandStyle(colorHex)}
+      style={brandStyle(colorHex, { lightText: true })}
       aria-label={`Your credit with ${providerName}`}
     >
       <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />

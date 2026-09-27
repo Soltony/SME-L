@@ -4,6 +4,7 @@ import { requireBorrowerPage } from '@/lib/borrower-page';
 import { getSettings } from '@/lib/settings';
 import { formatDateTime, toLocalPhone } from '@/lib/format';
 import { money } from '@/components/money';
+import { brandStyle, honeycomb, PLATFORM_BRAND } from '@/lib/brand';
 import { borrowerView, profileChecklist } from '@/lib/lending/borrower-documents';
 import { ProfileActions } from './profile-actions';
 import { ProfileDocuments } from './profile-documents';
@@ -41,34 +42,41 @@ export default async function ProfilePage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Profile</h1>
 
-      <section className="ink relative overflow-hidden rounded-2xl p-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-lg font-bold text-primary-foreground">
-            {initials(borrower.fullName, borrower.phoneNumber)}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold">{borrower.fullName ?? 'Borrower'}</p>
-            <p className="num flex items-center gap-1.5 text-sm text-[hsl(var(--ink-muted))]">
-              <Phone className="h-3.5 w-3.5" />
-              {toLocalPhone(borrower.phoneNumber)}
-            </p>
-            <p className="mt-0.5 text-[11px] text-[hsl(var(--ink-muted))]">Member since {formatDateTime(borrower.createdAt)}</p>
-          </div>
-        </div>
-
-        <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
-          {[
-            ['Active', String(count('ACTIVE'))],
-            ['Repaid', String(count('PAID_OFF'))],
-            ['Borrowed', money(borrowed)],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-xl bg-[hsl(var(--ink-raised))] p-2">
-              <dt className="text-[11px] text-[hsl(var(--ink-muted))]">{label}</dt>
-              <dd className="num mt-0.5 text-sm font-bold">{value}</dd>
+      {/* The platform's gold with white text, matching the credit card on the home screen. */}
+      <section className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(PLATFORM_BRAND, { lightText: true })}>
+        <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb('#FFFFFF', 0.22)} aria-hidden />
+        <div className="relative">
+          <div className="flex items-center gap-3">
+            <span
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-bold ring-1 ring-white/40"
+              style={{ backgroundColor: 'var(--brand-chip)' }}
+            >
+              {initials(borrower.fullName, borrower.phoneNumber)}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold">{borrower.fullName ?? 'Borrower'}</p>
+              <p className="num flex items-center gap-1.5 text-sm opacity-90">
+                <Phone className="h-3.5 w-3.5" />
+                {toLocalPhone(borrower.phoneNumber)}
+              </p>
+              <p className="mt-0.5 text-[11px] opacity-85">Member since {formatDateTime(borrower.createdAt)}</p>
             </div>
-          ))}
-        </dl>
-        <p className="mt-2 text-center text-[11px] text-[hsl(var(--ink-muted))]">Amounts in {currency}.</p>
+          </div>
+
+          <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
+            {[
+              ['Active', String(count('ACTIVE'))],
+              ['Repaid', String(count('PAID_OFF'))],
+              ['Borrowed', money(borrowed)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl p-2" style={{ backgroundColor: 'var(--brand-chip)' }}>
+                <dt className="text-[11px] opacity-85">{label}</dt>
+                <dd className="num mt-0.5 text-sm font-bold">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-center text-[11px] opacity-85">Amounts in {currency}.</p>
+        </div>
       </section>
 
       <ProfileDocuments items={documents.map(borrowerView)} />

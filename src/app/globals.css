@@ -108,6 +108,7 @@
   .brand-surface {
     background-image: linear-gradient(145deg, var(--brand-from) 0%, var(--brand) 45%, var(--brand-to) 100%);
     color: var(--brand-fg);
+    text-shadow: var(--brand-shadow, none);
   }
   /* The provider rail scrolls sideways; a visible bar would sit over the names. */
   .no-scrollbar {

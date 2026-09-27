@@ -38,7 +38,8 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const card = productCard(product);
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const penalties = parsePenaltyRules(product.penaltyRules);
-  const { foreground } = brandTokens(card.providerColor);
+  // White text on every lender colour, as on the home card; a light colour is deepened to keep it readable.
+  const { foreground } = brandTokens(card.providerColor, { lightText: true });
 
   const facts: { icon: typeof Coins; label: string; value: string }[] = [
     {
@@ -57,7 +58,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         <ChevronLeft className="h-4 w-4" /> Back
       </Link>
 
-      <header className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(card.providerColor)}>
+      <header className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(card.providerColor, { lightText: true })}>
         <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
         <div className="relative">
           <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide opacity-85">

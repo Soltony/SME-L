@@ -29,7 +29,8 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
   if (!loan) notFound();
   const v = buildLoanView(loan);
   const c = v.currency;
-  const { foreground } = brandTokens(loan.provider.colorHex);
+  // White text on every lender colour, as on the home card; a light colour is deepened to keep it readable.
+  const { foreground } = brandTokens(loan.provider.colorHex, { lightText: true });
   const repaidShare = v.principal > 0 ? Math.min(100, Math.round((v.lifetime.principalPaid / v.principal) * 100)) : 0;
   // On the card the arrears matter more than the status word, so an overdue
   // loan says so here rather than reading "Active" beside a red warning.
@@ -42,7 +43,7 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
       </Link>
 
       {/* The lender's colour, carried over from the home screen's credit card. */}
-      <section className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(loan.provider.colorHex)}>
+      <section className="brand-surface relative overflow-hidden rounded-2xl p-4 shadow-lg" style={brandStyle(loan.provider.colorHex, { lightText: true })}>
         <div className="pointer-events-none absolute inset-0 opacity-60" style={honeycomb(foreground, 0.22)} aria-hidden />
         <div className="relative">
           <div className="flex items-start justify-between gap-3">

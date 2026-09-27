@@ -12,7 +12,9 @@ import type { CSSProperties } from 'react';
  * a dozen inline styles.
  */
 
-const FALLBACK = '#E0A70B';
+/** The platform's own gold, for surfaces that belong to no provider. */
+export const PLATFORM_BRAND = '#E0A70B';
+const FALLBACK = PLATFORM_BRAND;
 /** Near-black rather than pure black: it sits better on a saturated colour. */
 const DARK_INK = '#12161F';
 const LIGHT_INK = '#FFFFFF';
@@ -80,9 +82,18 @@ export interface BrandTokens {
   isLight: boolean;
 }
 
-export function brandTokens(hex: string | null | undefined): BrandTokens {
+export interface BrandOptions {
+  /**
+   * White text whatever the colour. On a light brand (a yellow) white alone is
+   * barely legible, so the surface is painted a few shades deeper — the same
+   * hue — and the text gets a soft shadow.
+   */
+  lightText?: boolean;
+}
+
+export function brandTokens(hex: string | null | undefined, options: BrandOptions = {}): BrandTokens {
   const base = normalizeHex(hex);
-  const foreground = readableOn(base);
+  const foreground = options.lightText ? LIGHT_INK : readableOn(base);
   return { hex: base, foreground, isLight: foreground === DARK_INK };
 }
 
@@ -91,17 +102,22 @@ export function brandTokens(hex: string | null | undefined): BrandTokens {
  * foreground, the two stops of its gradient, and a translucent version of the
  * foreground for separators and chips.
  */
-export function brandStyle(hex: string | null | undefined): CSSProperties {
-  const { hex: base, foreground, isLight } = brandTokens(hex);
+export function brandStyle(hex: string | null | undefined, options: BrandOptions = {}): CSSProperties {
+  const { hex: base, foreground, isLight } = brandTokens(hex, options);
+  // White asked for on a colour that would naturally take dark text.
+  const deepen = !isLight && readableOn(base) === DARK_INK;
   return {
-    '--brand': base,
+    // Deepened just enough that white reaches 3:1 across the whole card — the
+    // minimum for large bold text — while it still reads as the brand's colour.
+    '--brand': deepen ? shade(base, -0.2) : base,
     '--brand-fg': foreground,
     // A light brand lifts towards white, a dark one deepens: either way the
     // gradient reads as the same colour lit from the top left.
-    '--brand-from': isLight ? shade(base, 0.12) : shade(base, 0.16),
-    '--brand-to': shade(base, -0.18),
+    '--brand-from': isLight ? shade(base, 0.12) : deepen ? shade(base, -0.16) : shade(base, 0.16),
+    '--brand-to': shade(base, deepen ? -0.36 : -0.18),
     '--brand-line': isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.22)',
     '--brand-chip': isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.18)',
+    '--brand-shadow': deepen ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
     '--brand-soft': alpha(base, 0.12),
     '--brand-edge': alpha(base, 0.35),
   } as CSSProperties;
