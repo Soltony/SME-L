@@ -5,7 +5,19 @@ import { createAuditLog } from '@/lib/audit-log';
 import { amountCell, csvResponse } from '@/lib/csv-response';
 import { dayToIso, parseIsoDay, today } from '@/lib/business-date';
 import { toCents } from '@/lib/money';
-import { agingReport, collectionsReport, disbursementsReport, incomeReport, portfolioReport } from '@/lib/reports';
+import {
+  agingReport,
+  borrowerAgingReport,
+  classificationReport,
+  collectionsReport,
+  disbursementsReport,
+  fundUtilizationReport,
+  incomeReport,
+  portfolioReport,
+  receiptsReport,
+  regulatoryReport,
+} from '@/lib/reports';
+import { isNbeClass, NBE_CLASSES, nbeLabel } from '@/lib/report-helpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,12 +34,15 @@ export async function GET(req: NextRequest) {
   if (from > to) return jsonError('The start date is after the end date.', 400);
   if (to - from > 3660) return jsonError('Choose a range of at most ten years.', 400);
   const stamp = `${dayToIso(from)}_${dayToIso(to)}`;
+  const q = url.searchParams.get('q')?.trim() || null;
+  const classParam = url.searchParams.get('class');
+  const classification = isNbeClass(classParam) ? classParam : null;
 
   await createAuditLog({
     actorId: user.id,
     actorName: user.fullName,
     action: 'REPORT_EXPORTED',
-    details: { report, providerId, from: dayToIso(from), to: dayToIso(to) },
+    details: { report, providerId, from: dayToIso(from), to: dayToIso(to), ...(q ? { q } : {}), ...(classification ? { classification } : {}) },
   });
 
   switch (report) {
@@ -69,6 +84,52 @@ export async function GET(req: NextRequest) {
         `disbursements_${stamp}.csv`,
         ['Requested at', 'Completed at', 'Loan', 'Provider', 'Product', 'Borrower phone', 'Borrower name', 'Credit account', 'Amount', 'Disbursement status', 'Loan status', 'CBS reference', 'HTTP status', 'Error'],
         rows.map((r) => [r.requestedAt, r.completedAt ?? '', r.loanNumber, r.provider, r.product, r.borrowerPhone, r.borrowerName ?? '', r.account, amountCell(r.amount), r.status, r.loanStatus, r.cbsReference ?? '', r.httpStatus ?? '', r.error ?? ''])
+      );
+    }
+    case 'classification': {
+      const rows = await classificationReport(providerId);
+      return csvResponse(
+        `nbe-classification_${dayToIso(today())}.csv`,
+        ['Provider', ...NBE_CLASSES.flatMap((c) => [`${c.label} loans`, `${c.label} principal`, `${c.label} outstanding`]), 'Total loans', 'Total principal', 'Total outstanding'],
+        rows.map((r) => [
+          r.providerName,
+          ...NBE_CLASSES.flatMap((c) => [r.classes[c.key].loans, amountCell(r.classes[c.key].principal), amountCell(r.classes[c.key].outstanding)]),
+          r.total.loans,
+          amountCell(r.total.principal),
+          amountCell(r.total.outstanding),
+        ])
+      );
+    }
+    case 'borrower-aging': {
+      const rows = await borrowerAgingReport(providerId, { classification, q });
+      return csvResponse(
+        `borrower-aging_${dayToIso(today())}.csv`,
+        ['Borrower name', 'Phone', 'Accounts', 'Providers', 'Loans', 'Days past due', 'Classification', 'Principal', 'Interest', 'Fees', 'Penalties', 'Tax', 'Overdue principal', 'Total outstanding'],
+        rows.map((r) => [r.borrowerName ?? '', r.phoneNumber, r.accounts.join(' '), r.providers.join('; '), r.loanNumbers.join(' '), r.daysPastDue, nbeLabel(r.classification), amountCell(r.principal), amountCell(r.interest), amountCell(r.fee), amountCell(r.penalty), amountCell(r.tax), amountCell(r.overduePrincipal), amountCell(r.totalOutstanding)])
+      );
+    }
+    case 'fund-utilization': {
+      const rows = await fundUtilizationReport(from, to, providerId);
+      return csvResponse(
+        `fund-utilization_${stamp}.csv`,
+        ['Provider', 'Capital', 'Loan fund (cash)', 'Reserved for pending disbursements', 'Available to lend', 'Principal outstanding', 'Utilization %', 'Disbursed in period', 'Principal recovered in period'],
+        rows.map((r) => [r.providerName, amountCell(r.capital), amountCell(r.cash), amountCell(r.reserved), amountCell(r.available), amountCell(r.principalOutstanding), r.utilization === null ? '' : (r.utilization * 100).toFixed(2), amountCell(r.disbursed), amountCell(r.principalRecovered)])
+      );
+    }
+    case 'regulatory': {
+      const { rows, documentTypes } = await regulatoryReport(from, to, providerId, { q });
+      return csvResponse(
+        `nbe-loan-register_${stamp}.csv`,
+        ['First name', 'Middle name', 'Last name', 'Phone', 'Account', 'Region', 'City', 'Occupation', 'Net monthly income', ...documentTypes.map((t) => t.name), 'Loan account ref no', 'Provider', 'Loan product', 'Application amount', 'Approved/disbursed amount', 'Disbursement date', 'Maturity date', 'Duration (days)', 'Repayment frequency', 'Interest rate', 'Service charge', 'Outstanding balance', 'Days past due', 'Loan classification', 'Settlement date', 'Loan cycle', 'Credit score'],
+        rows.map((r) => [r.firstName, r.middleName, r.lastName, r.phoneNumber, r.account, r.region, r.city, r.occupation, r.monthlyIncome ?? '', ...documentTypes.map((t) => r.documents[t.id] ?? ''), r.loanNumber, r.provider, r.product, amountCell(r.applicationAmount), amountCell(r.approvedAmount), r.disbursementDate, r.maturityDate ?? '', r.durationDays ?? '', r.repaymentFrequency, r.interestRate, r.serviceCharge, amountCell(r.outstanding), r.daysPastDue, r.classification, r.settlementDate ?? '', r.loanCycle, r.creditScore ?? ''])
+      );
+    }
+    case 'receipts': {
+      const rows = await receiptsReport(from, to, providerId);
+      return csvResponse(
+        `receipts_${stamp}.csv`,
+        ['Receipt', 'Value date', 'Received at', 'Loan', 'Provider', 'Borrower phone', 'Borrower name', 'Channel', 'External reference', 'Amount', 'Principal', 'Interest', 'Fees', 'Penalties', 'Tax', 'Overpayment', 'Status', 'Reversed at', 'Reversal reason'],
+        rows.map((r) => [r.receiptNo, r.valueDate, r.receivedAt, r.loanNumber, r.provider, r.borrowerPhone, r.borrowerName ?? '', r.channel, r.externalReference ?? '', amountCell(r.amount), amountCell(r.principal), amountCell(r.interest), amountCell(r.fee), amountCell(r.penalty), amountCell(r.tax), amountCell(r.excess), r.status, r.reversedAt ?? '', r.reversalReason ?? ''])
       );
     }
     case 'loans': {

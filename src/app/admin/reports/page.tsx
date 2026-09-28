@@ -3,54 +3,104 @@ import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
 import { getSettings } from '@/lib/settings';
 import { dayToIso, parseIsoDay, today } from '@/lib/business-date';
-import { formatDateTime, maskAccount } from '@/lib/format';
-import { agingReport, collectionsReport, disbursementsReport, incomeReport, portfolioReport } from '@/lib/reports';
+import { isNbeClass, NBE_CLASSES, reportPeriods } from '@/lib/report-helpers';
 import { PageHeader } from '@/components/admin/page-header';
-import { EmptyRow, FilterBar, TableCard } from '@/components/admin/data-shell';
+import { FilterBar } from '@/components/admin/data-shell';
 import { FilterSubmit, SelectFilter, TextFilter } from '@/components/admin/filters';
-import { StatusBadge } from '@/components/admin/status-badge';
 import { Button } from '@/components/ui/button';
-import { moneyCents } from '@/components/money';
 import { cn } from '@/lib/utils';
+import { OverviewTab } from './overview-tab';
+import { PortfolioTab } from './portfolio-tab';
+import { AgingTab } from './aging-tab';
+import { CollectionsTab } from './collections-tab';
+import { IncomeTab } from './income-tab';
+import { DisbursementsTab } from './disbursements-tab';
+import { FundUtilizationTab } from './fund-utilization-tab';
+import { RegulatoryTab } from './regulatory-tab';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Reports' };
 
-const TABS = [
-  { key: 'portfolio', label: 'Portfolio', ranged: false },
-  { key: 'aging', label: 'Aging', ranged: false },
-  { key: 'collections', label: 'Collections', ranged: true },
-  { key: 'income', label: 'Income', ranged: true },
-  { key: 'disbursements', label: 'Disbursements', ranged: true },
-];
+/** The longest range any report accepts, as the CSV export enforces. */
+const MAX_RANGE_DAYS = 3660;
 
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
-  return <th className={cn('px-4 py-2.5 font-semibold', right && 'text-right')}>{children}</th>;
-}
-function Td({ children, right, className }: { children: React.ReactNode; right?: boolean; className?: string }) {
-  return <td className={cn('px-4 py-2', right && 'num text-right', className)}>{children}</td>;
-}
+const TABS: {
+  key: string;
+  label: string;
+  ranged: boolean;
+  searchable?: boolean;
+  exports: { report: string; label: string }[];
+}[] = [
+  { key: 'overview', label: 'Overview', ranged: true, exports: [] },
+  { key: 'portfolio', label: 'Portfolio', ranged: false, exports: [{ report: 'portfolio', label: 'Export CSV' }] },
+  {
+    key: 'aging',
+    label: 'Aging & classification',
+    ranged: false,
+    searchable: true,
+    exports: [
+      { report: 'classification', label: 'Export classification' },
+      { report: 'aging', label: 'Export DPD buckets' },
+      { report: 'borrower-aging', label: 'Export borrowers' },
+    ],
+  },
+  {
+    key: 'collections',
+    label: 'Collections',
+    ranged: true,
+    exports: [
+      { report: 'collections', label: 'Export daily totals' },
+      { report: 'receipts', label: 'Export receipts' },
+    ],
+  },
+  { key: 'income', label: 'Income', ranged: true, exports: [{ report: 'income', label: 'Export CSV' }] },
+  { key: 'disbursements', label: 'Disbursements', ranged: true, exports: [{ report: 'disbursements', label: 'Export CSV' }] },
+  { key: 'funds', label: 'Fund utilization', ranged: true, exports: [{ report: 'fund-utilization', label: 'Export CSV' }] },
+  { key: 'regulatory', label: 'NBE loan register', ranged: true, searchable: true, exports: [{ report: 'regulatory', label: 'Export register' }] },
+];
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; providerId?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ tab?: string; providerId?: string; from?: string; to?: string; q?: string; class?: string; page?: string }>;
 }) {
   const user = (await getCurrentUser({ allowRefresh: false }))!;
   const params = await searchParams;
   const tab = TABS.find((t) => t.key === params.tab) ?? TABS[0];
   const providerId = user.providerId ?? (params.providerId || null);
-  const to = parseIsoDay(params.to, today());
-  const from = parseIsoDay(params.from, to - 30);
+  const T = today();
+  let to = parseIsoDay(params.to, T);
+  let from = parseIsoDay(params.from, to - 30);
+  if (from > to) [from, to] = [to, from];
+  if (to - from > MAX_RANGE_DAYS) from = to - MAX_RANGE_DAYS;
+  const q = tab.searchable ? params.q?.trim() || undefined : undefined;
+  const classification = tab.key === 'aging' && isNbeClass(params.class) ? params.class : null;
+  const page = Math.max(1, Number(params.page) || 1);
   const currency = String((await getSettings())['platform.currency'] || 'ETB');
   const providers = user.providerId ? [] : await prisma.loanProvider.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-  const query = new URLSearchParams({
-    report: tab.key,
+
+  const scope = !user.providerId && providerId ? { providerId } : {};
+  const range = { from: dayToIso(from), to: dayToIso(to) };
+  const explicitRange = params.from || params.to ? range : {};
+  const href = (values: Record<string, string | undefined>) => {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(values)) if (value) search.set(key, value);
+    return `/admin/reports?${search.toString()}`;
+  };
+  // What a pager or export link needs to reproduce the view being looked at.
+  const viewParams = {
+    tab: tab.key,
+    ...scope,
+    ...(tab.ranged ? range : {}),
+    q,
+    class: classification ?? undefined,
+  };
+  const exportQuery = new URLSearchParams({
     ...(providerId ? { providerId } : {}),
-    from: dayToIso(from),
-    to: dayToIso(to),
+    ...range,
+    ...(q ? { q } : {}),
+    ...(classification ? { class: classification } : {}),
   });
-  const m = (cents: number) => moneyCents(cents);
 
   return (
     <>
@@ -58,16 +108,20 @@ export default async function ReportsPage({
         title="Reports"
         description="Computed from the ledger and the loan book. Income is shown both as earned (accrual) and as collected (cash)."
         actions={
-          <Button asChild variant="outline" size="sm">
-            <a href={`/api/admin/reports/export?${query.toString()}`}>Export CSV</a>
-          </Button>
+          tab.exports.length > 0
+            ? tab.exports.map((e) => (
+                <Button key={e.report} asChild variant="outline" size="sm">
+                  <a href={`/api/admin/reports/export?report=${e.report}&${exportQuery.toString()}`}>{e.label}</a>
+                </Button>
+              ))
+            : undefined
         }
       />
       <nav className="mb-4 flex flex-wrap gap-2">
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/admin/reports?tab=${t.key}${providerId && !user.providerId ? `&providerId=${providerId}` : ''}`}
+            href={href({ tab: t.key, ...scope, ...(t.ranged ? explicitRange : {}) })}
             className={cn('rounded-full border px-3 py-1 text-sm font-medium', t.key === tab.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card hover:bg-secondary')}
           >
             {t.label}
@@ -81,247 +135,51 @@ export default async function ReportsPage({
         )}
         {tab.ranged && (
           <>
-            <TextFilter name="from" label="From" type="date" value={dayToIso(from)} />
-            <TextFilter name="to" label="To" type="date" value={dayToIso(to)} />
+            <TextFilter name="from" label="From" type="date" value={range.from} />
+            <TextFilter name="to" label="To" type="date" value={range.to} />
           </>
+        )}
+        {tab.searchable && <TextFilter name="q" label="Search" value={q} placeholder="Name, phone, loan no. or account" />}
+        {tab.key === 'aging' && (
+          <SelectFilter
+            name="class"
+            label="Borrower class"
+            value={classification ?? undefined}
+            allLabel="Any past due"
+            options={NBE_CLASSES.map((c) => ({ value: c.key, label: `${c.label} (${c.range})` }))}
+          />
         )}
         <FilterSubmit />
       </FilterBar>
+      {tab.ranged && (
+        <div className="-mt-2 mb-4 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="mr-1 text-muted-foreground">Period:</span>
+          {reportPeriods(T).map((p) => {
+            const active = p.from === from && p.to === to;
+            return (
+              <Link
+                key={p.key}
+                href={href({ tab: tab.key, ...scope, from: dayToIso(p.from), to: dayToIso(p.to), q })}
+                aria-current={active ? 'true' : undefined}
+                className={cn('rounded-md border px-2 py-1 font-medium', active ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground')}
+              >
+                {p.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
-      {tab.key === 'portfolio' &&
-        (async () => {
-          const rows = await portfolioReport(providerId);
-          return (
-            <TableCard>
-              <table className="w-full min-w-[1100px] text-sm">
-                <thead className="border-b border-border bg-secondary/50 text-left">
-                  <tr>
-                    <Th>Provider</Th>
-                    <Th right>Active</Th>
-                    <Th right>Principal</Th>
-                    <Th right>Interest</Th>
-                    <Th right>Fees</Th>
-                    <Th right>Penalties</Th>
-                    <Th right>Tax</Th>
-                    <Th right>Total</Th>
-                    <Th right>PAR 30+</Th>
-                    <Th right>PAR 90+</Th>
-                    <Th right>NPL</Th>
-                    <Th>Accrued through</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.length === 0 && <EmptyRow colSpan={12} message="No providers." />}
-                  {rows.map((r) => (
-                    <tr key={r.providerId}>
-                      <Td>{r.providerName}</Td>
-                      <Td right>{r.activeLoans}</Td>
-                      <Td right>{m(r.principal)}</Td>
-                      <Td right>{m(r.interest)}</Td>
-                      <Td right>{m(r.fee)}</Td>
-                      <Td right>{m(r.penalty)}</Td>
-                      <Td right>{m(r.tax)}</Td>
-                      <Td right className="font-semibold">
-                        {moneyCents(r.totalOutstanding, currency)}
-                      </Td>
-                      <Td right>
-                        {m(r.par30)} <span className="text-xs text-muted-foreground">({r.principal ? ((r.par30 / r.principal) * 100).toFixed(1) : '0.0'}%)</span>
-                      </Td>
-                      <Td right>
-                        {m(r.par90)} <span className="text-xs text-muted-foreground">({r.principal ? ((r.par90 / r.principal) * 100).toFixed(1) : '0.0'}%)</span>
-                      </Td>
-                      <Td right>{r.nplBorrowers}</Td>
-                      <Td>{r.accruedThrough ?? '—'}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableCard>
-          );
-        })()}
-
-      {tab.key === 'aging' &&
-        (async () => {
-          const rows = await agingReport(providerId);
-          const total = rows.reduce((t, r) => ({ loans: t.loans + r.loans, principal: t.principal + r.principal, outstanding: t.outstanding + r.totalOutstanding }), { loans: 0, principal: 0, outstanding: 0 });
-          return (
-            <TableCard>
-              <table className="w-full min-w-[640px] text-sm">
-                <thead className="border-b border-border bg-secondary/50 text-left">
-                  <tr>
-                    <Th>Days past due</Th>
-                    <Th right>Loans</Th>
-                    <Th right>Principal</Th>
-                    <Th right>Share</Th>
-                    <Th right>Total outstanding</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.map((r) => (
-                    <tr key={r.bucket}>
-                      <Td>{r.bucket}</Td>
-                      <Td right>{r.loans}</Td>
-                      <Td right>{m(r.principal)}</Td>
-                      <Td right>{total.principal ? `${((r.principal / total.principal) * 100).toFixed(1)}%` : '—'}</Td>
-                      <Td right>{m(r.totalOutstanding)}</Td>
-                    </tr>
-                  ))}
-                  <tr className="bg-secondary/40 font-semibold">
-                    <Td>Total</Td>
-                    <Td right>{total.loans}</Td>
-                    <Td right>{moneyCents(total.principal, currency)}</Td>
-                    <Td right>100%</Td>
-                    <Td right>{moneyCents(total.outstanding, currency)}</Td>
-                  </tr>
-                </tbody>
-              </table>
-            </TableCard>
-          );
-        })()}
-
-      {tab.key === 'collections' &&
-        (async () => {
-          const { rows, total, byChannel } = await collectionsReport(from, to, providerId);
-          return (
-            <>
-              <p className="mb-2 text-sm text-muted-foreground">
-                By channel:{' '}
-                {Object.entries(byChannel).map(([channel, v]) => `${channel} ${v.receipts} receipts, ${moneyCents(v.amount, currency)}`).join(' · ') || 'none'}
-              </p>
-              <TableCard>
-                <table className="w-full min-w-[900px] text-sm">
-                  <thead className="border-b border-border bg-secondary/50 text-left">
-                    <tr>
-                      <Th>Date</Th>
-                      <Th right>Receipts</Th>
-                      <Th right>Amount</Th>
-                      <Th right>Principal</Th>
-                      <Th right>Interest</Th>
-                      <Th right>Fees</Th>
-                      <Th right>Penalties</Th>
-                      <Th right>Tax</Th>
-                      <Th right>Overpaid</Th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {rows.length === 0 && <EmptyRow colSpan={9} message="No collections in this range." />}
-                    {[...rows, ...(rows.length ? [total] : [])].map((r) => (
-                      <tr key={r.date} className={r.date === 'Total' ? 'bg-secondary/40 font-semibold' : ''}>
-                        <Td>{r.date}</Td>
-                        <Td right>{r.receipts}</Td>
-                        <Td right>{m(r.amount)}</Td>
-                        <Td right>{m(r.principal)}</Td>
-                        <Td right>{m(r.interest)}</Td>
-                        <Td right>{m(r.fee)}</Td>
-                        <Td right>{m(r.penalty)}</Td>
-                        <Td right>{m(r.tax)}</Td>
-                        <Td right>{m(r.excess)}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableCard>
-            </>
-          );
-        })()}
-
-      {tab.key === 'income' &&
-        (async () => {
-          const rows = await incomeReport(from, to, providerId);
-          return (
-            <TableCard>
-              <table className="w-full min-w-[1000px] text-sm">
-                <thead className="border-b border-border bg-secondary/50 text-left">
-                  <tr>
-                    <Th>Provider</Th>
-                    <Th right>Interest earned</Th>
-                    <Th right>Fees earned</Th>
-                    <Th right>Penalties earned</Th>
-                    <Th right>Write-offs</Th>
-                    <Th right>Net income</Th>
-                    <Th right>Interest collected</Th>
-                    <Th right>Fees collected</Th>
-                    <Th right>Penalties collected</Th>
-                    <Th right>Tax charged / collected</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.map((r) => (
-                    <tr key={r.providerId}>
-                      <Td>{r.providerName}</Td>
-                      <Td right>{m(r.interestEarned)}</Td>
-                      <Td right>{m(r.feeEarned)}</Td>
-                      <Td right>{m(r.penaltyEarned)}</Td>
-                      <Td right>{m(r.writeOffs)}</Td>
-                      <Td right className="font-semibold">
-                        {moneyCents(r.netIncome, currency)}
-                      </Td>
-                      <Td right>{m(r.interestCollected)}</Td>
-                      <Td right>{m(r.feeCollected)}</Td>
-                      <Td right>{m(r.penaltyCollected)}</Td>
-                      <Td right>
-                        {m(r.taxCharged)} / {m(r.taxCollected)}
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
-                Earned figures net out reversals within the period (a write-off reverses unpaid accrued income). Collected figures come from posted receipts.
-              </p>
-            </TableCard>
-          );
-        })()}
-
-      {tab.key === 'disbursements' &&
-        (async () => {
-          const rows = await disbursementsReport(from, to, providerId);
-          return (
-            <TableCard>
-              <table className="w-full min-w-[1100px] text-sm">
-                <thead className="border-b border-border bg-secondary/50 text-left">
-                  <tr>
-                    <Th>Requested</Th>
-                    <Th>Loan</Th>
-                    <Th>Borrower</Th>
-                    <Th>Account</Th>
-                    <Th right>Amount</Th>
-                    <Th>Disbursement</Th>
-                    <Th>Loan</Th>
-                    <Th>CBS reference</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.length === 0 && <EmptyRow colSpan={8} message="No disbursements in this range." />}
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <Td className="text-xs">{formatDateTime(r.requestedAt)}</Td>
-                      <Td>
-                        <Link href={`/admin/loans/${r.loanId}`} className="font-mono text-primary hover:underline">
-                          {r.loanNumber}
-                        </Link>
-                        {!providerId && <p className="text-xs text-muted-foreground">{r.provider}</p>}
-                      </Td>
-                      <Td>
-                        {r.borrowerName ?? '—'}
-                        <p className="font-mono text-xs text-muted-foreground">{r.borrowerPhone}</p>
-                      </Td>
-                      <Td className="font-mono">{maskAccount(r.account)}</Td>
-                      <Td right>{m(r.amount)}</Td>
-                      <Td>
-                        <StatusBadge status={r.status} />
-                      </Td>
-                      <Td>
-                        <StatusBadge status={r.loanStatus} />
-                      </Td>
-                      <Td className="font-mono text-xs">{r.cbsReference ?? '—'}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableCard>
-          );
-        })()}
+      {tab.key === 'overview' && <OverviewTab providerId={providerId} from={from} to={to} currency={currency} />}
+      {tab.key === 'portfolio' && <PortfolioTab providerId={providerId} currency={currency} />}
+      {tab.key === 'aging' && (
+        <AgingTab providerId={providerId} currency={currency} classification={classification} q={q} page={page} pagerParams={viewParams} />
+      )}
+      {tab.key === 'collections' && <CollectionsTab providerId={providerId} from={from} to={to} currency={currency} />}
+      {tab.key === 'income' && <IncomeTab providerId={providerId} from={from} to={to} currency={currency} />}
+      {tab.key === 'disbursements' && <DisbursementsTab providerId={providerId} from={from} to={to} />}
+      {tab.key === 'funds' && <FundUtilizationTab providerId={providerId} from={from} to={to} currency={currency} />}
+      {tab.key === 'regulatory' && <RegulatoryTab providerId={providerId} from={from} to={to} currency={currency} q={q} page={page} pagerParams={viewParams} />}
     </>
   );
 }
