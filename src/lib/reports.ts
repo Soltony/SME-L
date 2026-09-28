@@ -950,6 +950,110 @@ export async function regulatoryReport(
 }
 
 // ----------------------------------------
+// Products and loan status
+// ----------------------------------------
+
+export interface ProductPerformanceRow {
+  productId: string;
+  productName: string;
+  providerName: string;
+  status: string;
+  activeLoans: number;
+  principalOutstanding: Cents;
+  pastDueLoans: number;
+  par30: Cents;
+  /** Every loan the product has paid out, whatever became of it. */
+  disbursedLoans: number;
+  disbursedAmount: Cents;
+  paidOffLoans: number;
+  writtenOffLoans: number;
+}
+
+/** How each product's loans are doing. Draft or inactive products with no loans are left out. */
+export async function productPerformanceReport(providerId?: string | null): Promise<ProductPerformanceRow[]> {
+  const scope = providerId ? { providerId } : {};
+  const [products, byStatus, active] = await Promise.all([
+    prisma.loanProduct.findMany({
+      where: scope,
+      select: { id: true, name: true, status: true, provider: { select: { name: true } } },
+      orderBy: [{ provider: { displayOrder: 'asc' } }, { name: 'asc' }],
+    }),
+    prisma.loan.groupBy({
+      by: ['productId', 'status'],
+      where: { ...scope, disbursementDate: { not: null } },
+      _count: { _all: true },
+      _sum: { principalAmount: true },
+    }),
+    prisma.loan.findMany({
+      where: { ...scope, status: 'ACTIVE' },
+      select: { productId: true, principalOutstanding: true, daysPastDue: true },
+    }),
+  ]);
+
+  const rows = new Map<string, ProductPerformanceRow>(
+    products.map((p) => [
+      p.id,
+      {
+        productId: p.id,
+        productName: p.name,
+        providerName: p.provider.name,
+        status: p.status,
+        activeLoans: 0,
+        principalOutstanding: 0,
+        pastDueLoans: 0,
+        par30: 0,
+        disbursedLoans: 0,
+        disbursedAmount: 0,
+        paidOffLoans: 0,
+        writtenOffLoans: 0,
+      },
+    ])
+  );
+  for (const group of byStatus) {
+    const row = rows.get(group.productId);
+    if (!row) continue;
+    row.disbursedLoans += group._count._all;
+    row.disbursedAmount += toCents(group._sum.principalAmount);
+    if (group.status === 'PAID_OFF') row.paidOffLoans += group._count._all;
+    if (group.status === 'WRITTEN_OFF') row.writtenOffLoans += group._count._all;
+  }
+  for (const loan of active) {
+    const row = rows.get(loan.productId);
+    if (!row) continue;
+    const principal = toCents(loan.principalOutstanding);
+    row.activeLoans += 1;
+    row.principalOutstanding += principal;
+    if (loan.daysPastDue >= 1) row.pastDueLoans += 1;
+    if (loan.daysPastDue >= 30) row.par30 += principal;
+  }
+  return [...rows.values()].filter((r) => r.status === 'ACTIVE' || r.disbursedLoans > 0);
+}
+
+export interface LoanStatusCount {
+  key: string;
+  label: string;
+  loans: number;
+}
+
+/** Every loan by where it stands, with active loans split into current and past due. */
+export async function loanStatusSummary(providerId?: string | null): Promise<LoanStatusCount[]> {
+  const scope = providerId ? { providerId } : {};
+  const [byStatus, pastDue] = await Promise.all([
+    prisma.loan.groupBy({ by: ['status'], where: scope, _count: { _all: true } }),
+    prisma.loan.count({ where: { ...scope, status: 'ACTIVE', daysPastDue: { gt: 0 } } }),
+  ]);
+  const count = (status: string) => byStatus.find((s) => s.status === status)?._count._all ?? 0;
+  return [
+    { key: 'CURRENT', label: 'Active — current', loans: count('ACTIVE') - pastDue },
+    { key: 'PAST_DUE', label: 'Active — past due', loans: pastDue },
+    { key: 'PENDING_DISBURSEMENT', label: 'Awaiting disbursement', loans: count('PENDING_DISBURSEMENT') },
+    { key: 'PAID_OFF', label: 'Paid off', loans: count('PAID_OFF') },
+    { key: 'WRITTEN_OFF', label: 'Written off', loans: count('WRITTEN_OFF') },
+    { key: 'DISBURSEMENT_FAILED', label: 'Disbursement failed', loans: count('DISBURSEMENT_FAILED') },
+  ];
+}
+
+// ----------------------------------------
 // Receipts
 // ----------------------------------------
 

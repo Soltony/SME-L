@@ -2,6 +2,7 @@ import { AlertTriangle, BadgeDollarSign, Landmark, Percent, Scale, Send, Trendin
 import { dayToIso, type Day } from '@/lib/business-date';
 import { NBE_CLASSES, type TrendGranularity } from '@/lib/report-helpers';
 import { classificationReport, nplPrincipal, overviewReport, portfolioReport, sumClassification } from '@/lib/reports';
+import { ShareBar } from '@/components/admin/share-bar';
 import { StatCard, StatGrid } from '@/components/admin/stat-card';
 import { moneyCents } from '@/components/money';
 import { percentOf, SectionTitle } from './report-table';
@@ -112,10 +113,7 @@ export async function OverviewTab({ providerId, from, to, currency }: { provider
                     <td className="num py-2 pr-3 text-right">{moneyCents(cell.outstanding)}</td>
                     <td className="py-2">
                       <div className="flex items-center gap-2">
-                        {/* One hue for one measure: bar length carries the share, the figure beside it the exact value. */}
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary" aria-hidden>
-                          <div className="h-full rounded-full bg-primary" style={{ width: `${share * 100}%` }} />
-                        </div>
+                        <ShareBar share={share} className="flex-1" />
                         <span className="num w-12 text-right text-xs text-muted-foreground">{(share * 100).toFixed(1)}%</span>
                       </div>
                     </td>

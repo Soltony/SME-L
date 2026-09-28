@@ -1,6 +1,7 @@
 import type { Day } from '@/lib/business-date';
 import { fundUtilizationReport } from '@/lib/reports';
 import { EmptyRow, TableCard } from '@/components/admin/data-shell';
+import { ShareBar } from '@/components/admin/share-bar';
 import { moneyCents } from '@/components/money';
 import { cn } from '@/lib/utils';
 import { Td, Th, THead } from './report-table';
@@ -39,10 +40,7 @@ export async function FundUtilizationTab({ providerId, from, to, currency }: { p
                   '—'
                 ) : (
                   <span className="inline-flex items-center gap-2">
-                    {/* A meter on the same scale in every row, so providers compare at a glance. */}
-                    <span className="h-1.5 w-16 overflow-hidden rounded-full bg-secondary" aria-hidden>
-                      <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(100, r.utilization * 100)}%` }} />
-                    </span>
+                    <ShareBar share={r.utilization} className="h-1.5 w-16" />
                     {(r.utilization * 100).toFixed(1)}%
                   </span>
                 )}
