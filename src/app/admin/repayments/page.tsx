@@ -6,6 +6,7 @@ import { getSettings } from '@/lib/settings';
 import { dateFromDay, dayFromDate, dayFromInstant, dayStart, dayToIso, parseIsoDay, today, type Day } from '@/lib/business-date';
 import { toCents, type Cents } from '@/lib/money';
 import { REPAYMENT_CHANNELS } from '@/lib/types';
+import { collectionAccountFor } from '@/lib/integrations/payment-gateway';
 import { PageHeader } from '@/components/admin/page-header';
 import { EmptyRow, FilterBar, Pager, TableCard } from '@/components/admin/data-shell';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -20,7 +21,7 @@ const LOAN = {
     id: true,
     loanNumber: true,
     borrower: { select: { fullName: true, phoneNumber: true } },
-    provider: { select: { name: true } },
+    provider: { select: { name: true, collectionAccountNo: true } },
   },
 } as const;
 
@@ -32,9 +33,18 @@ interface Row {
   reference: string | null;
   receiptNo: string | null;
   valueDay: Day;
-  loan: { id: string; loanNumber: string; borrower: { fullName: string | null; phoneNumber: string }; provider: { name: string } };
+  loan: {
+    id: string;
+    loanNumber: string;
+    borrower: { fullName: string | null; phoneNumber: string };
+    provider: { name: string; collectionAccountNo: string | null };
+  };
   channel: string;
-  /** The account a wallet payment was collected into, as it was signed. Not recorded for other channels. */
+  /**
+   * The collection account the money went into. A wallet payment records it
+   * when it is signed; a test or manual one records nothing, so those show
+   * where the provider's repayments are collected now.
+   */
   creditAccount: string | null;
   amount: Cents;
   portions: { principal: Cents; interest: Cents; fee: Cents; penalty: Cents; tax: Cents; excess: Cents } | null;
@@ -105,7 +115,7 @@ export default async function RepaymentsPage({
       valueDay: dayFromDate(r.valueDate),
       loan: r.loan,
       channel: r.channel,
-      creditAccount: r.paymentIntent?.collectionAccountNo ?? null,
+      creditAccount: r.paymentIntent?.collectionAccountNo ?? collectionAccountFor(r.loan.provider.collectionAccountNo),
       amount: toCents(r.amount),
       portions: {
         principal: toCents(r.principalPortion),
@@ -126,7 +136,7 @@ export default async function RepaymentsPage({
       valueDay: dayFromInstant(p.createdAt),
       loan: p.loan,
       channel: p.channel,
-      creditAccount: p.collectionAccountNo,
+      creditAccount: p.collectionAccountNo ?? collectionAccountFor(p.loan.provider.collectionAccountNo),
       amount: toCents(p.amount),
       portions: null,
       status: 'FAILED',

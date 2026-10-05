@@ -43,6 +43,11 @@ export interface GatewayConfig {
   key: string;
 }
 
+/** Where a provider's repayments land: its own collection account, else the platform-wide one. */
+export function collectionAccountFor(providerAccountNo?: string | null): string | null {
+  return providerAccountNo?.trim() || process.env.ACCOUNT_NO?.trim() || null;
+}
+
 /**
  * PAYMENT_* names, falling back to the NIB_PAYMENT_* names SME used.
  *
@@ -53,7 +58,7 @@ export interface GatewayConfig {
 export function resolveGatewayConfig(
   collectionAccountNo?: string | null
 ): { config: GatewayConfig | null; missing: string[] } {
-  const accountNo = collectionAccountNo?.trim() || process.env.ACCOUNT_NO?.trim() || '';
+  const accountNo = collectionAccountFor(collectionAccountNo) ?? '';
   const companyName = process.env.COMPANY_NAME?.trim() || '';
   const callbackUrl = process.env.CALLBACK_URL?.trim() || '';
   const paymentUrl = process.env.PAYMENT_URL?.trim() || process.env.NIB_PAYMENT_URL?.trim() || '';
