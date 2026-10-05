@@ -130,7 +130,7 @@ export const SETTING_DEFINITIONS: SettingDefinition[] = [
     category: 'payments',
     type: 'number',
     default: 30,
-    min: 5,
+    min: 1,
     max: 1440,
     unit: 'minutes',
   },
