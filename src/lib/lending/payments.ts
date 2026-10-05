@@ -323,6 +323,10 @@ export async function processGatewayCallback(
     }
   }
 
+  // The bank's own reference (its FT number), when the callback carries one
+  // besides ours. Kept on failures too, so they can be traced with the bank.
+  const gatewayReference = body.transactionId && body.transactionId !== txnRef ? String(body.transactionId) : null;
+
   const expected = toCents(intent.amount);
   const reported = body.paidAmount ?? body.amount;
   if (reported !== undefined && reported !== null && String(reported).trim() !== '') {
@@ -335,7 +339,7 @@ export async function processGatewayCallback(
     if (reportedCents !== expected) {
       await prisma.paymentIntent.updateMany({
         where: { id: intent.id, status: { in: ['PENDING', 'EXPIRED'] } },
-        data: { status: 'FAILED', failureReason: `Gateway reported ${String(reported)}, expected ${centsToDecimal(expected)}.` },
+        data: { status: 'FAILED', gatewayReference, failureReason: `Gateway reported ${String(reported)}, expected ${centsToDecimal(expected)}.` },
       });
       await createAuditLog({
         actorId: 'GATEWAY',
@@ -354,13 +358,12 @@ export async function processGatewayCallback(
   if (status && /FAIL|CANCEL|REJECT|DECLIN/.test(status)) {
     await prisma.paymentIntent.updateMany({
       where: { id: intent.id, status: { in: ['PENDING', 'EXPIRED'] } },
-      data: { status: 'FAILED', failureReason: `Gateway status ${status}`, callbackPayload: redact(body) },
+      data: { status: 'FAILED', gatewayReference, failureReason: `Gateway status ${status}`, callbackPayload: redact(body) },
     });
     return { httpStatus: 200, message: 'Failure recorded.' };
   }
 
   const actor: Actor = { id: 'GATEWAY', name: 'Payment gateway', type: 'EXTERNAL' };
-  const gatewayReference = body.transactionId && body.transactionId !== txnRef ? String(body.transactionId) : null;
 
   let receiptNo: string | null = null;
   try {

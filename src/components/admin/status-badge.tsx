@@ -24,7 +24,7 @@ const MAP: Record<string, { label: string; variant: Variant }> = {
   // Payments & repayments
   COMPLETED: { label: 'Completed', variant: 'success' },
   EXPIRED: { label: 'Expired', variant: 'outline' },
-  POSTED: { label: 'Posted', variant: 'success' },
+  POSTED: { label: 'Success', variant: 'success' },
   REVERSED: { label: 'Reversed', variant: 'destructive' },
   // Products & generic
   DRAFT: { label: 'Draft', variant: 'outline' },

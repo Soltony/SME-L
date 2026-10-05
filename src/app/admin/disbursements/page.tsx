@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { toCents } from '@/lib/money';
-import { formatDateTime, maskAccount } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { DISBURSEMENT_STATUSES } from '@/lib/types';
 import { PageHeader } from '@/components/admin/page-header';
 import { EmptyRow, Pager, TableCard } from '@/components/admin/data-shell';
@@ -110,7 +110,7 @@ export default async function DisbursementsPage({ searchParams }: { searchParams
                   {a.loan.borrower.fullName ?? '—'}
                   <p className="font-mono text-xs text-muted-foreground">{a.loan.borrower.phoneNumber}</p>
                 </td>
-                <td className="px-4 py-2.5 font-mono">{maskAccount(a.creditAccount)}</td>
+                <td className="px-4 py-2.5 font-mono">{a.creditAccount}</td>
                 <td className="num px-4 py-2.5 text-right">{moneyCents(toCents(a.amount), currency)}</td>
                 <td className="px-4 py-2.5">
                   <StatusBadge status={a.status} />

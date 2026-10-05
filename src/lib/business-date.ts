@@ -36,7 +36,17 @@ export function today(now: Date = new Date()): Day {
     }
     return isoToDay(override);
   }
-  return Math.floor((now.getTime() + businessOffsetMinutes() * 60_000) / MS_PER_DAY);
+  return dayFromInstant(now);
+}
+
+/** The business day a moment falls on. Unlike `today`, it is never overridden. */
+export function dayFromInstant(at: Date): Day {
+  return Math.floor((at.getTime() + businessOffsetMinutes() * 60_000) / MS_PER_DAY);
+}
+
+/** The moment a business day begins, for filtering a timestamp column by day. */
+export function dayStart(day: Day): Date {
+  return new Date(day * MS_PER_DAY - businessOffsetMinutes() * 60_000);
 }
 
 /** The hour on the business clock (0–23), for work that should wait until morning. */
