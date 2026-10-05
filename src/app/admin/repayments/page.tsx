@@ -15,7 +15,14 @@ import { moneyCents } from '@/components/money';
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Repayments' };
 
-const LOAN = { select: { id: true, loanNumber: true, borrower: { select: { fullName: true, phoneNumber: true } } } } as const;
+const LOAN = {
+  select: {
+    id: true,
+    loanNumber: true,
+    borrower: { select: { fullName: true, phoneNumber: true } },
+    provider: { select: { name: true } },
+  },
+} as const;
 
 /** One line of the list: a repayment that was posted, or a payment that failed before it could be. */
 interface Row {
@@ -25,10 +32,12 @@ interface Row {
   reference: string | null;
   receiptNo: string | null;
   valueDay: Day;
-  loan: { id: string; loanNumber: string; borrower: { fullName: string | null; phoneNumber: string } };
+  loan: { id: string; loanNumber: string; borrower: { fullName: string | null; phoneNumber: string }; provider: { name: string } };
   channel: string;
+  /** The account a wallet payment was collected into, as it was signed. Not recorded for other channels. */
+  creditAccount: string | null;
   amount: Cents;
-  portions: { principal: Cents; charges: Cents; excess: Cents } | null;
+  portions: { principal: Cents; interest: Cents; fee: Cents; penalty: Cents; tax: Cents; excess: Cents } | null;
   status: string;
   note: string | null;
 }
@@ -74,7 +83,7 @@ export default async function RepaymentsPage({
     showRepayments
       ? prisma.repayment.findMany({
           where,
-          include: { loan: LOAN, paymentIntent: { select: { gatewayReference: true } } },
+          include: { loan: LOAN, paymentIntent: { select: { gatewayReference: true, collectionAccountNo: true } } },
           orderBy: { receivedAt: 'desc' },
           take: upTo,
         })
@@ -96,10 +105,14 @@ export default async function RepaymentsPage({
       valueDay: dayFromDate(r.valueDate),
       loan: r.loan,
       channel: r.channel,
+      creditAccount: r.paymentIntent?.collectionAccountNo ?? null,
       amount: toCents(r.amount),
       portions: {
         principal: toCents(r.principalPortion),
-        charges: toCents(r.interestPortion) + toCents(r.feePortion) + toCents(r.penaltyPortion) + toCents(r.taxPortion),
+        interest: toCents(r.interestPortion),
+        fee: toCents(r.feePortion),
+        penalty: toCents(r.penaltyPortion),
+        tax: toCents(r.taxPortion),
         excess: toCents(r.excessPortion),
       },
       status: r.status,
@@ -113,6 +126,7 @@ export default async function RepaymentsPage({
       valueDay: dayFromInstant(p.createdAt),
       loan: p.loan,
       channel: p.channel,
+      creditAccount: p.collectionAccountNo,
       amount: toCents(p.amount),
       portions: null,
       status: 'FAILED',
@@ -145,22 +159,27 @@ export default async function RepaymentsPage({
         <FilterSubmit />
       </FilterBar>
       <TableCard>
-        <table className="w-full min-w-[1000px] text-sm">
+        <table className="w-full min-w-[1500px] text-sm">
           <thead className="border-b border-border bg-secondary/50 text-left">
             <tr>
               <th className="px-4 py-2.5 font-semibold">Receipt</th>
               <th className="px-4 py-2.5 font-semibold">Value date</th>
               <th className="px-4 py-2.5 font-semibold">Loan</th>
+              <th className="px-4 py-2.5 font-semibold">Borrower</th>
               <th className="px-4 py-2.5 font-semibold">Channel</th>
+              <th className="px-4 py-2.5 font-semibold">Credit account</th>
               <th className="px-4 py-2.5 text-right font-semibold">Amount</th>
               <th className="px-4 py-2.5 text-right font-semibold">Principal</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Charges</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Interest</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Fee</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Penalty</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Tax</th>
               <th className="px-4 py-2.5 text-right font-semibold">Overpaid</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.length === 0 && <EmptyRow colSpan={9} message="No repayments in this range." />}
+            {rows.length === 0 && <EmptyRow colSpan={14} message="No repayments in this range." />}
             {rows.map((r) => (
               <tr key={r.id} className="hover:bg-secondary/30">
                 <td className="px-4 py-2.5">
@@ -172,13 +191,20 @@ export default async function RepaymentsPage({
                   <Link href={`/admin/loans/${r.loan.id}`} className="font-mono text-primary hover:underline">
                     {r.loan.loanNumber}
                   </Link>
-                  <p className="text-xs text-muted-foreground">{r.loan.borrower.fullName ?? r.loan.borrower.phoneNumber}</p>
+                  {!user.providerId && <p className="text-xs text-muted-foreground">{r.loan.provider.name}</p>}
+                </td>
+                <td className="px-4 py-2.5">
+                  {r.loan.borrower.fullName ?? '—'}
+                  <p className="font-mono text-xs text-muted-foreground">{r.loan.borrower.phoneNumber}</p>
                 </td>
                 <td className="px-4 py-2.5">{r.channel}</td>
+                <td className="px-4 py-2.5 font-mono">{r.creditAccount ?? '—'}</td>
                 <td className="num px-4 py-2.5 text-right font-medium">{moneyCents(r.amount)}</td>
-                <td className="num px-4 py-2.5 text-right">{r.portions ? moneyCents(r.portions.principal) : '—'}</td>
-                <td className="num px-4 py-2.5 text-right">{r.portions ? moneyCents(r.portions.charges) : '—'}</td>
-                <td className="num px-4 py-2.5 text-right">{r.portions ? moneyCents(r.portions.excess) : '—'}</td>
+                {(['principal', 'interest', 'fee', 'penalty', 'tax', 'excess'] as const).map((part) => (
+                  <td key={part} className="num px-4 py-2.5 text-right">
+                    {r.portions ? moneyCents(r.portions[part]) : '—'}
+                  </td>
+                ))}
                 <td className="px-4 py-2.5">
                   <StatusBadge status={r.status} />
                   {r.note && (

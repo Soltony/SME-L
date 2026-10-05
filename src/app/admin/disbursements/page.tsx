@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { toCents } from '@/lib/money';
+import { dayFromDate, formatDay } from '@/lib/business-date';
 import { formatDateTime } from '@/lib/format';
 import { DISBURSEMENT_STATUSES } from '@/lib/types';
 import { PageHeader } from '@/components/admin/page-header';
@@ -31,7 +32,16 @@ export default async function DisbursementsPage({ searchParams }: { searchParams
     prisma.disbursementAttempt.findMany({
       where,
       include: {
-        loan: { select: { id: true, loanNumber: true, status: true, borrower: { select: { fullName: true, phoneNumber: true } }, provider: { select: { name: true } } } },
+        loan: {
+          select: {
+            id: true,
+            loanNumber: true,
+            status: true,
+            maturityDate: true,
+            borrower: { select: { fullName: true, phoneNumber: true } },
+            provider: { select: { name: true, fundingAccountNo: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -82,21 +92,23 @@ export default async function DisbursementsPage({ searchParams }: { searchParams
       </nav>
 
       <TableCard>
-        <table className="w-full min-w-[1000px] text-sm">
+        <table className="w-full min-w-[1250px] text-sm">
           <thead className="border-b border-border bg-secondary/50 text-left">
             <tr>
               <th className="px-4 py-2.5 font-semibold">Requested</th>
               <th className="px-4 py-2.5 font-semibold">Loan</th>
               <th className="px-4 py-2.5 font-semibold">Borrower</th>
-              <th className="px-4 py-2.5 font-semibold">Account</th>
+              <th className="px-4 py-2.5 font-semibold">Debit account</th>
+              <th className="px-4 py-2.5 font-semibold">Credit account</th>
               <th className="px-4 py-2.5 text-right font-semibold">Amount</th>
+              <th className="px-4 py-2.5 font-semibold">Maturity</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
               <th className="px-4 py-2.5 font-semibold">CBS reference / detail</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {attempts.length === 0 && <EmptyRow colSpan={8} message="Nothing here." />}
+            {attempts.length === 0 && <EmptyRow colSpan={10} message="Nothing here." />}
             {attempts.map((a) => (
               <tr key={a.id} className="align-top hover:bg-secondary/30">
                 <td className="px-4 py-2.5 text-xs">{formatDateTime(a.createdAt)}</td>
@@ -110,8 +122,11 @@ export default async function DisbursementsPage({ searchParams }: { searchParams
                   {a.loan.borrower.fullName ?? '—'}
                   <p className="font-mono text-xs text-muted-foreground">{a.loan.borrower.phoneNumber}</p>
                 </td>
+                {/* The provider's funding account as it is set now; core banking picks the account from the provider code. */}
+                <td className="px-4 py-2.5 font-mono">{a.loan.provider.fundingAccountNo ?? '—'}</td>
                 <td className="px-4 py-2.5 font-mono">{a.creditAccount}</td>
                 <td className="num px-4 py-2.5 text-right">{moneyCents(toCents(a.amount), currency)}</td>
+                <td className="whitespace-nowrap px-4 py-2.5">{a.loan.maturityDate ? formatDay(dayFromDate(a.loan.maturityDate)) : '—'}</td>
                 <td className="px-4 py-2.5">
                   <StatusBadge status={a.status} />
                 </td>
