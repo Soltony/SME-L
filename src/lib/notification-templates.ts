@@ -124,7 +124,7 @@ export const SAMPLE_VALUES: Record<string, string> = {
   receiptNo: 'RC-0004567',
   amount: 'ETB 5,000.00',
   balance: 'ETB 3,250.00',
-  account: '********7890',
+  account: '1000234567890',
   dueDate: '15 Oct 2026',
   reason: 'Monthly turnover is below the product minimum.',
   document: 'Trade licence',

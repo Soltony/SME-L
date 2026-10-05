@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { toCents } from '@/lib/money';
-import { formatDateTime, maskAccount } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { buildLoanView } from '@/lib/lending/loan-view';
 import { borrowerKnownToProvider, visibleDocumentsWhere } from '@/lib/lending/borrower-documents';
 import { PageHeader } from '@/components/admin/page-header';
@@ -118,7 +118,7 @@ export default async function BorrowerDetailPage({ params }: { params: Promise<{
             <ul className="space-y-1.5">
               {borrower.accounts.map((a) => (
                 <li key={a.id} className="flex justify-between gap-2">
-                  <span className="font-mono">{maskAccount(a.accountNumber)}</span>
+                  <span className="font-mono">{a.accountNumber}</span>
                   <span className="text-xs text-muted-foreground">
                     {a.accountName ?? ''} {a.source === 'SIMULATED' && '(simulated)'}
                   </span>

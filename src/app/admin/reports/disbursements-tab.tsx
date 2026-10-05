@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Day } from '@/lib/business-date';
-import { formatDateTime, maskAccount } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { disbursementsReport } from '@/lib/reports';
 import { EmptyRow, TableCard } from '@/components/admin/data-shell';
 import { StatusBadge } from '@/components/admin/status-badge';
@@ -37,7 +37,7 @@ export async function DisbursementsTab({ providerId, from, to }: { providerId: s
                 {r.borrowerName ?? '—'}
                 <p className="font-mono text-xs text-muted-foreground">{r.borrowerPhone}</p>
               </Td>
-              <Td className="font-mono">{maskAccount(r.account)}</Td>
+              <Td className="font-mono">{r.account}</Td>
               <Td right>{moneyCents(r.amount)}</Td>
               <Td>
                 <StatusBadge status={r.status} />

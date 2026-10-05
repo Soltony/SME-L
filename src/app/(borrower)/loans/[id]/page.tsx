@@ -4,7 +4,6 @@ import { ChevronLeft } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { requireBorrowerPage } from '@/lib/borrower-page';
 import { buildLoanView, buildRepaymentView } from '@/lib/lending/loan-view';
-import { maskAccount } from '@/lib/format';
 import { brandStyle, brandTokens, honeycomb } from '@/lib/brand';
 import { StatusBadge, statusLabel } from '@/components/admin/status-badge';
 import { ProviderIcon } from '@/components/provider-icon';
@@ -90,7 +89,7 @@ export default async function BorrowerLoanPage({ params }: { params: Promise<{ i
             </>
           ) : v.status === 'PENDING_DISBURSEMENT' ? (
             <p className="mt-3 text-sm">
-              We are sending {money(v.principal, c)} to account {maskAccount(v.disbursementAccount)}. You will get an SMS when it
+              We are sending {money(v.principal, c)} to account {v.disbursementAccount}. You will get an SMS when it
               arrives.
             </p>
           ) : v.status === 'PAID_OFF' ? (

@@ -83,7 +83,7 @@ export async function RegulatoryTab({
                 <Td>{r.middleName || '—'}</Td>
                 <Td>{r.lastName || '—'}</Td>
                 <Td className="font-mono text-xs">{r.phoneNumber}</Td>
-                <Td className="font-mono">{maskAccount(r.account)}</Td>
+                <Td className="font-mono">{r.account}</Td>
                 <Td>{[r.region, r.city].filter(Boolean).join(' / ') || '—'}</Td>
                 <Td>{r.occupation || '—'}</Td>
                 <Td right>{r.monthlyIncome === null ? '—' : money(r.monthlyIncome)}</Td>

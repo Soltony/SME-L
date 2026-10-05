@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { maskAccount } from '@/lib/format';
 import { NBE_CLASSES, nbeLabel, type NbeClass } from '@/lib/report-helpers';
 import { agingReport, borrowerAgingReport, classificationReport, nplPrincipal, sumClassification } from '@/lib/reports';
 import { EmptyRow, Pager, TableCard } from '@/components/admin/data-shell';
@@ -145,7 +144,7 @@ export async function AgingTab({
                     {r.loanNumbers.length === 1 ? r.loanNumbers[0] : `${r.loanNumbers.length} loans`}
                   </Link>
                 </Td>
-                <Td className="font-mono">{r.accounts.map(maskAccount).join(', ')}</Td>
+                <Td className="font-mono">{r.accounts.join(', ')}</Td>
                 <Td right className={cn(r.daysPastDue > 0 && 'font-semibold text-destructive')}>
                   {r.daysPastDue}
                 </Td>

@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { dayFromDate, formatDay } from '@/lib/business-date';
-import { formatDateTime, maskAccount } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { toCents } from '@/lib/money';
 import { buildLoanView, buildRepaymentView } from '@/lib/lending/loan-view';
 import { PageHeader } from '@/components/admin/page-header';
@@ -175,7 +175,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Paid to account</dt>
-              <dd className="font-mono">{maskAccount(view.disbursementAccount)}</dd>
+              <dd className="font-mono">{view.disbursementAccount}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Disbursed</dt>
@@ -351,7 +351,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
               <tr key={d.id} className="align-top">
                 <td className="px-4 py-2">{d.attemptNo}</td>
                 <td className="px-4 py-2">{formatDateTime(d.createdAt)}</td>
-                <td className="px-4 py-2 font-mono">{maskAccount(d.creditAccount)}</td>
+                <td className="px-4 py-2 font-mono">{d.creditAccount}</td>
                 <td className="num px-4 py-2 text-right">{moneyCents(toCents(d.amount))}</td>
                 <td className="px-4 py-2">
                   <StatusBadge status={d.status} />

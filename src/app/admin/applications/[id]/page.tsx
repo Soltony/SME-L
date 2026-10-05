@@ -6,7 +6,7 @@ import { getCurrentUser } from '@/lib/session';
 import { hasPermission } from '@/lib/permissions';
 import { getSettings } from '@/lib/settings';
 import { centsToNumber, toCents } from '@/lib/money';
-import { formatDateTime, maskAccount } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { parseRequiredDocuments } from '@/lib/documents';
 import { parseDocumentSnapshot, REQUIREMENT_LABELS } from '@/lib/lending/document-requirements';
 import { describeOutstanding, outstandingDocuments, productChecklist } from '@/lib/lending/borrower-documents';
@@ -144,7 +144,7 @@ export default async function ApplicationDetailPage({ params }: { params: Promis
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Pay to (verified)</dt>
-              <dd className="font-mono">{maskAccount(application.disbursementAccount)}</dd>
+              <dd className="font-mono">{application.disbursementAccount}</dd>
             </div>
             {application.approvedAmount && (
               <div>
